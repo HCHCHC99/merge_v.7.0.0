@@ -52,6 +52,7 @@ typedef struct {
     uint8_t             idx;
     float               cur_pos;        // 当前位置（绝对位置）
     pot_stat_t        status_pot;    // 传感器状态
+    uint16_t            adc_raw;        // 位置传感器 ADC 原始值
 } S_pos_upd_t;
 
 /**
@@ -139,6 +140,7 @@ void System_Pos_Callback(uint32_t topic, const void* data, uint16_t len, uint8_t
     }
 
 	mySystem.axis[p_data->idx].pos_vol = (uint16_t)(p_data->cur_pos * 1000);
+	mySystem.axis[p_data->idx].pos_adc = p_data->adc_raw;
 }
 
 /**

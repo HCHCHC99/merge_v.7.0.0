@@ -35,6 +35,7 @@ typedef struct {
     uint16_t     sensor_voltage;     /* 传感器电压 */
     uint16_t     current;            /* 电流 */
     uint16_t     position;           /* 推杆行程 (0.1mm); 0xFFFF = 无效 */
+    uint16_t     adc_raw;            /* 位置传感器 ADC 原始值 */
     fault_stat_t fault_stat;         /* 故障状态 */
 } motor_state_t;
 

@@ -76,6 +76,7 @@ typedef struct {
     uint8_t             idx;
     float               cur_pos;        // 当前位置（绝对位置）
     pot_stat_t        	status_pot;    // 传感器状态
+    uint16_t            adc_raw;        // 位置传感器 ADC 原始值
 } pos_upd_t;
 
 /** 环形缓冲区结构体 **/

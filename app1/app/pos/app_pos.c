@@ -153,9 +153,11 @@ static void app_pos_upd(void)
 {
 	s_pos_msg[POS_M1].cur_pos = pos_m1.pos_upd.cur_pos;
 	s_pos_msg[POS_M1].status_pot = pos_m1.pos_upd.status_pot;
+	s_pos_msg[POS_M1].adc_raw = pos_m1.pos_upd.adc_raw;
 
 	s_pos_msg[POS_M2].cur_pos = pos_m2.pos_upd.cur_pos;
 	s_pos_msg[POS_M2].status_pot = pos_m2.pos_upd.status_pot;
+	s_pos_msg[POS_M2].adc_raw = pos_m2.pos_upd.adc_raw;
 }
 
 void app_pos_data_process(void)//放adc中断

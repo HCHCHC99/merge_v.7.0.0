@@ -86,6 +86,7 @@ void pos_module_process(pos_handle_t *handle)
 	uint16_t adc = ADC_GetValue(hw->ADCx, hw->channel);
 	voltage_pos = (adc * hw->verf / (1 << hw->adc_res)) * hw->vol_gain + hw->vol_offset;
 	handle->pos_upd.cur_pos = voltage_pos;  // 保存最新值
+	handle->pos_upd.adc_raw = adc;          // 保存 ADC 原始值
 
 	// 写入环形缓冲区
     pos_buffer_write(handle, voltage_pos);

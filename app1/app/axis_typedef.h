@@ -348,6 +348,7 @@ typedef struct {
 	bool   act_stall_flag;
 
 	uint16_t pos_vol;
+	uint16_t pos_adc;              // 位置传感器 ADC 原始值
 } Axis_t;
 
 /* ====================== 顶层系统结构体 ====================== */

@@ -233,7 +233,9 @@ typedef struct {
     uint8_t      pos_l;       /* 行程 低字节 (0.1mm) */
     uint8_t      pos_h;       /* 行程 高字节 (0.1mm); 0xFFFF = 无效 */
     fault_stat_t fault_stat;  /* 故障状态 */
-    uint8_t      resv1[4];    /* byte4~7 保留, 置0 */
+    uint8_t      adc_l;       /* 位置传感器 ADC 原始值 低字节 */
+    uint8_t      adc_h;       /* 位置传感器 ADC 原始值 高字节 */
+    uint8_t      resv1[2];    /* byte6~7 保留, 置0 */
 } can_18FF010A_t;
 
 /*==============================================================================
