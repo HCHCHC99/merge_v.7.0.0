@@ -1,7 +1,6 @@
 #include "flash_advanced.h"
 #include <string.h>
 
-// �ⲿ��������Ҫ���ӵ��ײ�HC32FLASH����
 extern HC32FLASH_STATUS HC32FLASH_EraseSector(uint32_t u32Addr);
 extern HC32FLASH_STATUS HC32FLASH_WritedWord_Check(uint32_t u32Addr, uint32_t data);
 extern uint32_t HC32FLASH_ReaddWord(uint32_t u32Addr);
@@ -17,38 +16,30 @@ extern uint32_t HC32FLASH_ReaddWord(uint32_t u32Addr);
 #define MANAGEMENT_MAGIC       0x5A5A5A5A            // 魔数
 #define MANAGEMENT_VERSION     0x00000001            // 版本号
 
-// ============ �ڲ��ṹ���� ============
 struct FlashAdvHandle {
     FlashAdvConfig_t config;
     FlashAdvOps_t ops;
     
-    // ״̬��¼
     FlashAdvOpType_t last_op_type;
     uint32_t last_address;
     uint32_t last_data;
     FlashAdvStatus_t last_status;
     
-    // ͳ����Ϣ
     FlashAdvStatistics_t stats;
     
-    // ��ʷ��¼
     FlashAdvHistoryRecord_t history[FLASH_ADV_HISTORY_SIZE];
     uint32_t total_operations;
     uint8_t history_count;
     
-    // ������Ϣ
     FlashAdvLifetimeInfo_t lifetime;
     
-    // ��ʼ����־
     uint8_t initialized;
-    uint8_t management_enabled;  // ������¼�Ƿ�����
+    uint8_t management_enabled;
 };
 
-// ȫ�־��
 static FlashAdvHandle_t g_flash_adv_handle;
 static uint8_t g_flash_adv_created = 0;
 
-// ============ �ڲ������������� ============
 static uint8_t FlashAdv_IsValid(FlashAdvHandle_t* handle, uint32_t address);
 static uint32_t FlashAdv_GetSectorIndex(FlashAdvHandle_t* handle, uint32_t address);
 static void FlashAdv_RecordOperation(FlashAdvHandle_t* handle, 
@@ -64,7 +55,6 @@ static FlashAdvStatus_t FlashAdv_WriteWithRetry(FlashAdvHandle_t* handle,
                                                  uint32_t max_retries);
 static uint32_t FlashAdv_CalculateChecksum(const FlashAdvLifetimeInfo_t* info);
 
-// ============ �ײ����亯�� ============
 static FlashAdvStatus_t Adv_EraseSector(uint32_t address)
 {
     HC32FLASH_STATUS st = HC32FLASH_EraseSector(address);
@@ -98,38 +88,32 @@ static void GetDefaultOps(FlashAdvOps_t* ops)
     ops->wait_done = Adv_WaitDone;
 }
 
-// ============ У��ͼ��� ============
 static uint32_t FlashAdv_CalculateChecksum(const FlashAdvLifetimeInfo_t* info)
 {
     uint32_t sum = 0;
     const uint32_t* data = (const uint32_t*)info;
-    // �����checksum�ֶ���������ֽ�
     for (uint32_t i = 0; i < sizeof(FlashAdvLifetimeInfo_t) - 4; i += 4) {
         sum += *data++;
     }
     return sum;
 }
 
-// ============ ����������Ϣ��Flash������9�� ============
 FlashAdvStatus_t FlashAdv_SaveLifetimeInfo(FlashAdvHandle_t* handle)
 {
     if (!handle || !handle->management_enabled) {
         return FLASH_ADV_ERROR;
     }
     
-    // ׼��Ҫ���������
     FlashAdvLifetimeInfo_t save_info = handle->lifetime;
     save_info.magic = MANAGEMENT_MAGIC;
     save_info.version = MANAGEMENT_VERSION;
     save_info.checksum = FlashAdv_CalculateChecksum(&save_info);
     
-    // �Ȳ�����������
     FlashAdvStatus_t status = handle->ops.erase_sector(MANAGEMENT_SECTOR_ADDR);
     if (status != FLASH_ADV_OK) {
         return status;
     }
     
-    // �����д��
     uint32_t* write_ptr = (uint32_t*)&save_info;
     uint32_t word_count = sizeof(FlashAdvLifetimeInfo_t) / 4;
     
@@ -144,14 +128,12 @@ FlashAdvStatus_t FlashAdv_SaveLifetimeInfo(FlashAdvHandle_t* handle)
     return FLASH_ADV_OK;
 }
 
-// ============ ��Flash����������Ϣ������9�� ============
 FlashAdvStatus_t FlashAdv_LoadLifetimeInfo(FlashAdvHandle_t* handle)
 {
     if (!handle || !handle->management_enabled) {
         return FLASH_ADV_ERROR;
     }
     
-    // ��ȡ������������
     FlashAdvLifetimeInfo_t loaded_info;
     uint32_t* read_ptr = (uint32_t*)&loaded_info;
     
@@ -159,12 +141,10 @@ FlashAdvStatus_t FlashAdv_LoadLifetimeInfo(FlashAdvHandle_t* handle)
         read_ptr[i] = handle->ops.read_word(MANAGEMENT_SECTOR_ADDR + i * 4);
     }
     
-    // ���ħ����У���
     if (loaded_info.magic == MANAGEMENT_MAGIC && 
         loaded_info.version == MANAGEMENT_VERSION) {
         uint32_t calc_checksum = FlashAdv_CalculateChecksum(&loaded_info);
         if (calc_checksum == loaded_info.checksum) {
-            // ������Ч���ָ�������Ϣ
             handle->lifetime = loaded_info;
             return FLASH_ADV_OK;
         }
@@ -173,7 +153,6 @@ FlashAdvStatus_t FlashAdv_LoadLifetimeInfo(FlashAdvHandle_t* handle)
     return FLASH_ADV_ERROR;
 }
 
-// ============ �ڲ���������ʵ�� ============
 static uint8_t FlashAdv_IsValid(FlashAdvHandle_t* handle, uint32_t address)
 {
     if (!handle) return 0;
@@ -188,12 +167,10 @@ static uint32_t FlashAdv_GetSectorIndex(FlashAdvHandle_t* handle, uint32_t addre
     return offset / handle->config.sector_size;
 }
 
-// �ҵ� FlashAdv_IsProtected �������滻Ϊ��
 static uint8_t FlashAdv_IsProtected(FlashAdvHandle_t* handle, uint32_t address)
 {
     if (!handle) return 1;
     
-    // ʹ��ͳһ�ĺ궨����б������
     return FLASH_ADV_IS_ADDRESS_PROTECTED(address);
 }
 
@@ -255,7 +232,6 @@ static void FlashAdv_UpdateLifetime(FlashAdvHandle_t* handle, uint32_t sector_id
     }
     
 #ifdef FLASH_MANAGEMENT_RECORD_ENABLE
-    // ÿ�β����󱣴�������Ϣ
     FlashAdv_SaveLifetimeInfo(handle);
 #endif
 }
@@ -285,7 +261,6 @@ static FlashAdvStatus_t FlashAdv_WriteWithRetry(FlashAdvHandle_t* handle,
     return status;
 }
 
-// ============ �����ӿ�ʵ�� ============
 
 FlashAdvHandle_t* FlashAdv_Create(const FlashAdvConfig_t* config, const FlashAdvOps_t* ops)
 {
@@ -314,7 +289,6 @@ FlashAdvHandle_t* FlashAdv_Create(const FlashAdvConfig_t* config, const FlashAdv
     g_flash_adv_handle.management_enabled = 0;
 #endif
     
-    // ��ʼ��������Ϣ
     g_flash_adv_handle.lifetime.max_erase_cycles = config->max_erase_cycles;
     g_flash_adv_handle.lifetime.warning_threshold = 80;
     g_flash_adv_handle.lifetime.sector_size = config->sector_size;
@@ -335,7 +309,6 @@ FlashAdvHandle_t* FlashAdv_Create(const FlashAdvConfig_t* config, const FlashAdv
         g_flash_adv_handle.lifetime.sector_erase_counts[i] = 0;
     }
     
-    // ���Լ����ѱ����������Ϣ
 #ifdef FLASH_MANAGEMENT_RECORD_ENABLE
     FlashAdv_LoadLifetimeInfo(&g_flash_adv_handle);
 #endif
@@ -663,7 +636,6 @@ void FlashAdv_GetValidSectorRange(FlashAdvHandle_t* handle, uint32_t* start, uin
     if (end) *end = VALID_SECTOR_END;
 }
 
-// ============ ���Ժ���ʵ�� ============
 #define FLASH_ADV_TEST_ADDR     0x00050000
 #define FLASH_ADV_TEST_WORD_COUNT 8
 
@@ -718,14 +690,12 @@ uint32_t flash_advanced_test(void)
 }
 
 
-// �û����������ַ����������Լ�����㣩
-#define USER_REGION_START_ADDR  (VALID_SECTOR_START * 0x2000)   // ����10: 0x14000
-#define USER_REGION_END_ADDR    ((VALID_SECTOR_END + 1) * 0x2000) // ����63��ʼ: 0x7E000? ʵ�ʽ�����0x7C000
-// ����HC32F46x���������֣�����0=0x00000, ����10=0x14000, ����62=0x7C000
+#define USER_REGION_START_ADDR  (VALID_SECTOR_START * 0x2000)
+#define USER_REGION_END_ADDR    ((VALID_SECTOR_END + 1) * 0x2000)
 
 void FlashAdv_GetUserRegion(uint32_t *start_addr, uint32_t *end_addr, uint32_t *size)
 {
     if (start_addr) *start_addr = VALID_SECTOR_START * 0x2000;
-    if (end_addr) *end_addr = (VALID_SECTOR_END + 1) * 0x2000;  // �ų�����62? ��Ҫȷ�ϱ߽�
+    if (end_addr) *end_addr = (VALID_SECTOR_END + 1) * 0x2000;
     if (size) *size = (VALID_SECTOR_END - VALID_SECTOR_START + 1) * 0x2000;
 }

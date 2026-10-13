@@ -1,6 +1,5 @@
 ﻿/*******************************************
 * 文件名: uds_ota.c
-* 作者: AI Assistant
 * 版本: V1.0.0
 * 功能: UDS OTA 应用封装层实现
 * 说明: 从 main.c 搬运 ISOTP_RxCallback / ISOTP_RegisterRxFilters /

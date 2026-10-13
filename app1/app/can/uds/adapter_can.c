@@ -1,8 +1,5 @@
 ﻿/**
  * @file    Adapter_Can.c
- * @brief   CAN�����ʵ�� - �������������� can_module (֧��TX�ж�)
- * @note    ʵ�� Adapter_Can.h �ӿڣ��ڲ����� can_module API
- *          ʹ�� TX ����ж��������Ͷ���
  */
 
 #include "adapter_can.h"
@@ -13,7 +10,6 @@
 #include <stdlib.h>
 
 /*==============================================================================
- * ���Ժ�
  *============================================================================*/
 #define CANIF_D(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_DEBUG, COLOR_CYAN,   "CANIF", fmt, ##__VA_ARGS__)
 #define CANIF_I(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_INFO,  COLOR_GREEN, "CANIF", fmt, ##__VA_ARGS__)
@@ -21,53 +17,50 @@
 #define CANIF_E(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_ERROR, COLOR_RED,   "CANIF", fmt, ##__VA_ARGS__)
 
 /*==============================================================================
- * ���ض���
  *============================================================================*/
 
-/* ���Թ��ܣ�1=������δƥ���CAN֡�ط�����0=�ر� */
+/**/
 #define CANIF_ECHO_ENABLE           (0U)
 
-/* TX���д�С (������2����) */
+/**/
 #define CANIF_TX_QUEUE_SIZE         (32U)
 #define CANIF_TX_QUEUE_MASK         (CANIF_TX_QUEUE_SIZE - 1U)
 
-/* RX������������� */
+/**/
 #define CANIF_MAX_RX_FILTERS        (16U)
 
-/* Bus-Off�ָ��ȴ�ʱ�� (ms) */
+/**/
 #define CANIF_BUSOFF_RECOVERY_MS    (500U)
 
-/* CANӲ��ʵ�� (�̶�ʹ��CAN1) */
+/**/
 #define CANIF_CAN_INSTANCE          (CM_CAN)
 
 /*==============================================================================
- * ���ر���
  *============================================================================*/
 
-/* ---------- TX���� ---------- */
+/**/
 static CanMsg_t m_astcTxQueue[CANIF_TX_QUEUE_SIZE];
 static volatile uint8_t m_u8TxHead = 0U;
 static volatile uint8_t m_u8TxTail = 0U;
 
-/* ---------- RX�������� ---------- */
+/**/
 static CanIf_RxFilterEntry_t m_astcRxFilters[CANIF_MAX_RX_FILTERS];
 static uint8_t m_u8RxFilterCount = 0U;
 
-/* Ĭ��RX�ص� (δƥ��֡) */
+/**/
 static void (*m_pfnDefaultRxCallback)(const CanMsg_t *pMsg) = NULL;
 
-/* ---------- can_module ����ͻ��� ---------- */
+/**/
 static can_handle_t *m_pCanHandle = NULL;
 
-/* ---------- Bus-Off״̬ ---------- */
+/**/
 static uint32_t m_busOffTimestamp = 0;
 static volatile bool m_bBusOff = false;
 
-/* ---------- ��ʼ����־ ---------- */
+/**/
 static bool m_bInitialized = false;
 
 /*==============================================================================
- * ���غ���ԭ��
  *============================================================================*/
 
 static void CanIf_ConvertToCanFrame(const CanMsg_t *pSrc, can_frame_t *pDst);
@@ -77,17 +70,13 @@ static void CanIf_DispatchRx(const CanMsg_t *pMsg);
 static void CanIf_TxCompleteCallback(void);
 static void CanIf_CheckBusOff(void);
 
-/* Ĭ�ϻ��Իص� */
+/**/
 static void CanIf_EchoCallback(const CanMsg_t *pMsg);
 
 /*==============================================================================
- * ���غ���ʵ��
  *============================================================================*/
 
 /**
- * @brief TX��ɻص� (�� can_module ���ж��е���)
- * @note  ���ж���������ִ�У�������ٴ���
- *        ��SW����ȡ��һ֡����
  */
 static void CanIf_TxCompleteCallback(void)
 {
@@ -97,7 +86,7 @@ static void CanIf_TxCompleteCallback(void)
     bool bHasFrame = false;
     int8_t send_ret;
     
-    /* �Ӷ���ȡһ֡ */
+    /**/
     if (m_u8TxHead != m_u8TxTail) {
         stcMsg = m_astcTxQueue[m_u8TxTail];
         m_u8TxTail = (m_u8TxTail + 1U) & CANIF_TX_QUEUE_MASK;
@@ -108,7 +97,7 @@ static void CanIf_TxCompleteCallback(void)
         return;
     }
     
-    /* ת��Ϊ can_module ��ʽ������ */
+    /**/
     CanIf_ConvertToCanFrame(&stcMsg, &stcFrame);
     
     if (stcFrame.ide == IDE_EXD) {
@@ -118,14 +107,13 @@ static void CanIf_TxCompleteCallback(void)
     }
     
     if (send_ret != CAN_RET_OK) {
-        /* ����ʧ�ܣ��Żض���ͷ�� (�����ϲ�Ӧ�÷���) */
+        /**/
         m_u8TxTail = (m_u8TxTail - 1U) & CANIF_TX_QUEUE_MASK;
         CANIF_W("TX callback: send failed, frame returned to queue");
     }
 }
 
 /**
- * @brief �� CanMsg_t ת��Ϊ can_module �� can_frame_t
  */
 static void CanIf_ConvertToCanFrame(const CanMsg_t *pSrc, can_frame_t *pDst)
 {
@@ -141,7 +129,6 @@ static void CanIf_ConvertToCanFrame(const CanMsg_t *pSrc, can_frame_t *pDst)
 }
 
 /**
- * @brief �� can_module �� stc_can_rx_frame_t ת��Ϊ CanMsg_t
  */
 static void CanIf_ConvertFromCanFrame(const stc_can_rx_frame_t *pSrc, CanMsg_t *pDst)
 {
@@ -160,8 +147,6 @@ static void CanIf_ConvertFromCanFrame(const stc_can_rx_frame_t *pSrc, CanMsg_t *
 }
 
 /**
- * @brief ��鱨���Ƿ�ƥ�������
- * @return true=ƥ��, false=��ƥ��
  */
 static bool CanIf_MatchFilter(const CanMsg_t *pMsg, const CanIf_RxFilterEntry_t *pFilter)
 {
@@ -171,7 +156,7 @@ static bool CanIf_MatchFilter(const CanMsg_t *pMsg, const CanIf_RxFilterEntry_t 
         return false;
     }
     
-    /* ��ʽ��� */
+    /**/
     if (pFilter->u8Format == CAN_ID_STD && pMsg->u8IDE != 0U) {
         return false;
     }
@@ -179,7 +164,7 @@ static bool CanIf_MatchFilter(const CanMsg_t *pMsg, const CanIf_RxFilterEntry_t 
         return false;
     }
     
-    /* IDƥ��: mask bit=1 ��ʾ������ (���Ը�λ) */
+    /**/
     u32EffectiveMask = ~(pFilter->u32CanMask);
     if ((pMsg->u32ID & u32EffectiveMask) != (pFilter->u32CanId & u32EffectiveMask)) {
         return false;
@@ -189,8 +174,6 @@ static bool CanIf_MatchFilter(const CanMsg_t *pMsg, const CanIf_RxFilterEntry_t 
 }
 
 /**
- * @brief �ַ�����֡��ƥ��Ļص�����
- * @note  ����ƥ��Ĺ������ص����ᱻ���� (֧�ֶ�·�ַ�)
  */
 static void CanIf_DispatchRx(const CanMsg_t *pMsg)
 {
@@ -201,7 +184,7 @@ static void CanIf_DispatchRx(const CanMsg_t *pMsg)
         return;
     }
     
-    /* ����������������������ƥ��Ļص� */
+    /**/
     for (i = 0U; i < m_u8RxFilterCount; i++) {
         if (CanIf_MatchFilter(pMsg, &m_astcRxFilters[i])) {
             if (m_astcRxFilters[i].pfnCallback != NULL) {
@@ -211,14 +194,13 @@ static void CanIf_DispatchRx(const CanMsg_t *pMsg)
         }
     }
     
-    /* ��ƥ�� �� Ĭ�ϻص� */
+    /**/
     if (!bMatched && m_pfnDefaultRxCallback != NULL) {
         m_pfnDefaultRxCallback(pMsg);
     }
 }
 
 /**
- * @brief Bus-Off״̬���ͻָ�
  */
 static void CanIf_CheckBusOff(void)
 {
@@ -247,7 +229,6 @@ static void CanIf_CheckBusOff(void)
 }
 
 /**
- * @brief Ĭ�ϻ��Իص�
  */
 static void CanIf_EchoCallback(const CanMsg_t *pMsg)
 {
@@ -255,11 +236,9 @@ static void CanIf_EchoCallback(const CanMsg_t *pMsg)
 }
 
 /*==============================================================================
- * ����APIʵ��
  *============================================================================*/
 
 /**
- * @brief ��ʼ��CAN�����
  */
 void CanIf_Init(can_handle_t *handle)
 {
@@ -271,35 +250,34 @@ void CanIf_Init(can_handle_t *handle)
     
     
     
-    /* ---------- 5. ��ʼ��TX���� ---------- */
+    /**/
     memset(m_astcTxQueue, 0, sizeof(m_astcTxQueue));
     m_u8TxHead = 0U;
     m_u8TxTail = 0U;
     
-    /* ---------- 6. ��ʼ���������� ---------- */
+    /**/
     memset(m_astcRxFilters, 0, sizeof(m_astcRxFilters));
     m_u8RxFilterCount = 0U;
     m_pfnDefaultRxCallback = NULL;
     
-    /* ---------- 7. ��ʼ��Bus-Off��ʱ�� ---------- */
+    /**/
     m_busOffTimestamp = 0;
     m_bBusOff = false;
     
-    /* ---------- 8. ���û��Թ��� ---------- */
+    /**/
 #if CANIF_ECHO_ENABLE
     CanIf_SetDefaultRxCallback(&CanIf_EchoCallback);
 #else
     CanIf_SetDefaultRxCallback(NULL);
 #endif
     
-    /* ---------- 9. ���ó�ʼ����־ ---------- */
+    /**/
     m_bInitialized = true;
     
     CANIF_I("=== CanIf Init Done ===");
 }
 
 /**
- * @brief ����CAN��Ϣ (������)
  */
 bool CanIf_Send(const CanMsg_t *pMsg)
 {
@@ -316,12 +294,12 @@ bool CanIf_Send(const CanMsg_t *pMsg)
         return false;
     }
     
-    /* ת��Ϊ can_module ��ʽ */
+    /**/
     CanIf_ConvertToCanFrame(pMsg, &stcFrame);
     
     __disable_irq();
     
-    /* ����ֱ��Ӳ������ (���TX����) */
+    /**/
     if (!can_is_tx_busy()) {
         if (stcFrame.ide == IDE_EXD) {
             send_ret = can_transmit_ext(stcFrame.id, stcFrame.data, stcFrame.len);
@@ -336,7 +314,7 @@ bool CanIf_Send(const CanMsg_t *pMsg)
         }
     }
     
-    /* Ӳ��æ �� ��� */
+    /**/
     {
         uint8_t u8Next = (m_u8TxHead + 1U) & CANIF_TX_QUEUE_MASK;
         if (u8Next != m_u8TxTail) {
@@ -355,7 +333,6 @@ bool CanIf_Send(const CanMsg_t *pMsg)
 }
 
 /**
- * @brief ��ѭ����ѯ
  */
 void CanIf_Poll(void)
 {
@@ -370,18 +347,17 @@ void CanIf_Poll(void)
 
     /* RX dispatch removed: body CAN + UDS both go through app_can_receive() */
     
-    /* ========== 1. Bus-Off���ͻָ� ========== */
+    /**/
     CanIf_CheckBusOff();
     
-    /* ========== 2. ��ȫ��: ���TX���е����зǿգ��ֶ��������� ========== */
-    /* ��ֹ�жϻص���ĳЩ��Ե�������© */
+    /**/
+    /**/
     if (!can_is_tx_busy() && (m_u8TxHead != m_u8TxTail)) {
         CanIf_TxCompleteCallback();
     }
 }
 
 /**
- * @brief ע��RX������
  */
 bool CanIf_RegisterRxFilter(const CanIf_RxFilterEntry_t *pEntry)
 {
@@ -409,7 +385,6 @@ bool CanIf_RegisterRxFilter(const CanIf_RxFilterEntry_t *pEntry)
 }
 
 /**
- * @brief ����Ĭ��RX�ص�
  */
 void CanIf_SetDefaultRxCallback(void (*pfnCallback)(const CanMsg_t *pMsg))
 {
@@ -418,7 +393,6 @@ void CanIf_SetDefaultRxCallback(void (*pfnCallback)(const CanMsg_t *pMsg))
 }
 
 /**
- * @brief ��ȡTX���д�����֡��
  */
 uint8_t CanIf_GetTxQueueCount(void)
 {

@@ -53,18 +53,14 @@ static void Boot_ForceCmdRxCallback(const CanMsg_t *pMsg)
 //
 //                          ##############################
 //                          #                            #
-//                          #    ����ʽ�㡿��ʽ���ܴ���    #
 //                          #                            #
 //                          ##############################
 //
-// ������Bootloader���ġ�Flash��WDT����ת������RAM
 //
 // ###########################################################################
 
-// ==================== ����ȫ�ֱ����������ã� ====================
 volatile en_dbg_clear_app_state_t g_eDebugClearAppState = DBG_CLEAR_NONE;
 
-// ==================== �ڲ���̬�������� ====================
 static en_slot_type_t GetCurrentSlot(void);
 static void ValidateSlotFlag(stc_boot_context_t *pstcCtx);
 static void InitAppInfo(stc_app_info_t *pstcApp, en_slot_type_t eSlot, uint32_t u32Addr);
@@ -121,7 +117,6 @@ void DisableAllNVICInterrupts(void)
 }
 
 // ###########################################################################
-//                          ����RAM ��ʼ��
 // ###########################################################################
 void InitSharedCtrl(void)
 {
@@ -137,7 +132,6 @@ void InitSharedCtrl(void)
 }
 
 // ###########################################################################
-//                          Flash ����
 // ###########################################################################
 int32_t Bootloader_FlashEraseSector(uint32_t u32Addr)
 {
@@ -151,7 +145,6 @@ int32_t Bootloader_FlashEraseSector(uint32_t u32Addr)
 }
 
 // ###########################################################################
-//                          ���Ź�״̬����
 // ###########################################################################
 uint32_t GetWdtResetCount(uint32_t u32Addr)
 {
@@ -234,7 +227,6 @@ void ClearAppStateBySlot(en_slot_type_t eSlot)
 }
 
 // ###########################################################################
-//                          Ӧ����ת & ��λ�л�
 // ###########################################################################
 void Bootloader_JumpToApp(uint32_t u32AppAddr)
 {
@@ -252,18 +244,14 @@ void Bootloader_JumpToApp(uint32_t u32AppAddr)
         return;
     }
 
-    // 1. �������RAM��bootloader��APP��������
     // ClearAllRAM(); // APP startup handles RAM init
     
-    // 2. ֹͣSysTick
     SysTick->CTRL = 0;
     SCB->ICSR |= SCB_ICSR_PENDSTCLR_Msk; 
 
-    // 3. ���������ж�
     __disable_irq();
     DisableAllNVICInterrupts();
     
-    // 4. ����ж�ʹ�ܺ͹���Ĵ���
     for (uint8_t i = 0; i < 8; i++) 
     {
         NVIC->ICER[i] = 0xFFFFFFFF;
@@ -273,18 +261,15 @@ void Bootloader_JumpToApp(uint32_t u32AppAddr)
     // 4.5 Shutdown LEDs before jump
     Led_Boot_Shutdown();
 
-    // 5. ����ջָ���������
     __set_MSP(*(uint32_t *)u32AppAddr);
     SCB->VTOR = ((uint32_t)u32AppAddr & SCB_VTOR_TBLOFF_Msk);
     
     __DSB();
     __ISB();
 
-    // 6. ��ת��APP
     (*((void(*)(void))app_start_address))();
 }
 
-// RAM��պ������ؼ�ʵ�֣�
 void ClearAllRAM(void)
 {
     volatile uint32_t *ram_addr = (volatile uint32_t *)RAM_START_ADDR;
@@ -347,7 +332,6 @@ void Boot_SetRunSlotToAddr(uint32_t u32Addr)
 }
 
 // ###########################################################################
-//                          Bootloader ������
 // ###########################################################################
 void Bootloader_Init(void) {}
 
@@ -519,7 +503,6 @@ void Boot_StartupSequence(void)
 }
 
 // ###########################################################################
-//                          �ڲ���̬����
 // ###########################################################################
 static en_slot_type_t GetCurrentSlot(void) {
     uint32_t s = READ_FLASH_DIRECT(APP_RUN_SLOT_ADDR);

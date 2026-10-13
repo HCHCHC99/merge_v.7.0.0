@@ -1,6 +1,5 @@
 /*******************************************
 * 文件名: uds_ota.h
-* 作者: AI Assistant
 * 版本: V1.0.0
 * 功能: UDS OTA 应用封装层 — 统一 boot/app 的 UDS 初始化、轮询、阶段调度
 * 说明: 封装 ISOTP / UDS / FlashDownload / CAN 滤波器的 init 和 poll，

@@ -1,4 +1,4 @@
-/******************************************** 文件名: uds_diagnostic.c* 作者: AI Assistant* 版本: V1.0.0* 功能: UDS 通用诊断协议实现 - 支持例程控制和固件升级* 说明: 通过 uds_dl_if.h 抽象接口调用底层下载实现*******************************************/#include "uds_diagnostic.h"#include "can_adapter.h"#include "rtt_log.h"#include <string.h>#include "isotp_transport.h"#include "security_access.h"#ifndef MEM_ZERO_STRUCT
+/******************************************** 文件名: uds_diagnostic.c* 版本: V1.0.0* 功能: UDS 通用诊断协议实现 - 支持例程控制和固件升级* 说明: 通过 uds_dl_if.h 抽象接口调用底层下载实现*******************************************/#include "uds_diagnostic.h"#include "can_adapter.h"#include "rtt_log.h"#include <string.h>#include "isotp_transport.h"#include "security_access.h"#ifndef MEM_ZERO_STRUCT
 #define MEM_ZERO_STRUCT(x)  memset(&(x), 0, sizeof(x))
 #endif
 
