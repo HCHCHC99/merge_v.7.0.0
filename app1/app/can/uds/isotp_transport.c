@@ -292,11 +292,6 @@ static const char* isotp_ota_annotate(uint32_t can_id, uint8_t* data)
 {
     uint8_t frame_type = data[0] & 0xF0;
 
-    if (can_id == 0x18FF8118) {
-        if (data[0] == 0x01 && data[1] == 0x00) return "<-- Enable";
-        return "";
-    }
-
     if (frame_type == ISOTP_FRAME_FLOW_CONTROL) return "<-- FC";
     if (frame_type == ISOTP_FRAME_CONSECUTIVE) return "<-- CF";
 
@@ -351,14 +346,10 @@ static void isotp_print_ota_frame(uint32_t can_id, uint8_t* data, uint8_t len)
     
     /* 判断方向 */
     const char* direction;
-    if (can_id == 0x18DA03F1) {
+    if (can_id == 0x18FF3AFD) {
         direction = "[RX]";
-    } else if (can_id == 0x18DAF103) {
+    } else if (can_id == 0x18FF1F11) {
         direction = "[TX]";
-    } else if (can_id == 0x18FF8118) {
-        direction = "[RX]";
-    } else if (can_id == 0x18DBFFF0) {
-        direction = "[RX]";
     } else {
         direction = "[--]";
     }
@@ -639,7 +630,7 @@ int8_t isotp_receive_frame(uint8_t channel, uint32_t can_id, uint8_t* frame_data
 #endif
 
     /* ==================== 特殊帧检测 ==================== */
-    if (can_id == 0x18DA03F1 && frame_len >= 8)
+    if (can_id == 0x18FF3AFD && frame_len >= 8)
     {
         if (frame_data[0] == 0x24 && 
             frame_data[1] == 0xD2 && 

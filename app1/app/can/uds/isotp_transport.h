@@ -51,8 +51,8 @@
 // #define ISOTP_AUTO_FC
 
 /* 关注的 CAN ID 列表（可任意增加） */
-#define ISOTP_FILTER_CAN_ID_COUNT     4
-#define ISOTP_FILTER_CAN_ID_LIST      {0x18DA03F1, 0x18DAF103, 0x18FF8118, 0x18DBFFF0}
+#define ISOTP_FILTER_CAN_ID_COUNT     2
+#define ISOTP_FILTER_CAN_ID_LIST      {0x18FF3AFD, 0x18FF1F11}
 
 /* 过滤记录缓冲区大小（环形缓冲区）*/
 #define ISOTP_FILTER_BUFFER_SIZE      64
@@ -79,7 +79,7 @@
 
 /* 配置参数 */
 #define ISOTP_BUFFER_SIZE            8192    /* 接收缓冲区大小 (8KB) */
-#define ISOTP_DEFAULT_RESPONSE_ID   0x18DAF103
+#define ISOTP_DEFAULT_RESPONSE_ID   0x18FF1F11
 #define ISOTP_RX_TIMEOUT_MS          65535   /* 接收超时时间 (ms) */
 
 /* 流控参数 (保守模式) */
