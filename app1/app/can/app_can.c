@@ -12,18 +12,18 @@
 #include "uds/adapter_can.h"
 #endif
 
-//canÄ£¿éÊ¹ÄÜ
+//canÄ£ï¿½ï¿½Ê¹ï¿½ï¿½
 #if SYS_ENABLE_CAN
 
-/* ·¢ËÍ×´Ì¬¹ÜÀíÆ÷ */
+/* ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
 typedef struct {
-    uint32_t last_cycle;        // ÉÏÒ»¸ö·¢ËÍÖÜÆÚµÄÆðÊ¼Ê±¼ä
-    uint32_t next_tx_time;      // ÏÂÒ»Ö¡µÄ·¢ËÍÊ±¼äµã
-    uint8_t  step;              // 0:¿ÕÏÐ, 1~7:·¢ËÍµÚ¼¸Ö¡
+    uint32_t last_cycle;        // ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Úµï¿½ï¿½ï¿½Ê¼Ê±ï¿½ï¿½
+    uint32_t next_tx_time;      // ï¿½ï¿½Ò»Ö¡ï¿½Ä·ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½
+    uint8_t  step;              // 0:ï¿½ï¿½ï¿½ï¿½, 1~7:ï¿½ï¿½ï¿½ÍµÚ¼ï¿½Ö¡
 
-    /* ÍÆ¸ËÊ¹ÄÜ±êÖ¾ */
-    uint8_t motor1_enabled;   // ÍÆ¸Ë1Ê¹ÄÜ£º1=Ê¹ÄÜ£¬0=½ûÓÃ
-    uint8_t motor2_enabled;   // ÍÆ¸Ë2Ê¹ÄÜ£º1=Ê¹ÄÜ£¬0=½ûÓÃ
+    /* ï¿½Æ¸ï¿½Ê¹ï¿½Ü±ï¿½Ö¾ */
+    uint8_t motor1_enabled;   // ï¿½Æ¸ï¿½1Ê¹ï¿½Ü£ï¿½1=Ê¹ï¿½Ü£ï¿½0=ï¿½ï¿½ï¿½ï¿½
+    uint8_t motor2_enabled;   // ï¿½Æ¸ï¿½2Ê¹ï¿½Ü£ï¿½1=Ê¹ï¿½Ü£ï¿½0=ï¿½ï¿½ï¿½ï¿½
 
 	uint8_t software_enable;
 
@@ -31,19 +31,19 @@ typedef struct {
 
 static can_tx_manager_t tx_mgr = {0};
 
-/* Íâ²¿Ó²¼þÅäÖÃ±í */
+/* ï¿½â²¿Ó²ï¿½ï¿½ï¿½ï¿½ï¿½Ã±ï¿½ */
 extern const can_cfg_t CAN_HW;
 
-/* È«¾ÖÊµÀý£¨¾²Ì¬£¬½ö±¾ÎÄ¼þ¿É¼û£© */
+/* È«ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½É¼ï¿½ï¿½ï¿½ */
 can_handle_t can_handle;
-// ¶¨ÒåÁ½¸öµç»ú×´Ì¬ÊµÀý
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´Ì¬Êµï¿½ï¿½
 motor_state_t g_motor_state[2];
-//×¼±¸·¢²¼µÄ
+//×¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 static can_msg_t s_can_msg = {
     .motor1_cmd          = CAN_CMD_IDLE,
     .motor2_cmd          = CAN_CMD_IDLE,
     .highest_gear_signal = 0,
-    .en_gk_only          = SPC_DISABLE,                     // ¸ù¾Ý machine_type_spc_t ¶¨ÒåÌî0
+    .en_gk_only          = SPC_DISABLE,                     // ï¿½ï¿½ï¿½ï¿½ machine_type_spc_t ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½0
     .support_calibration = CALIB_NOT_SUPPORT,
     .awd_cal_enable      = AWD_CAL_DISABLE,
     .speed_general       = 0,
@@ -53,31 +53,31 @@ static can_msg_t s_can_msg = {
     .ce4p_spc            = SPC_DISABLE,
 };
 
-/* ==================== 5. ¶¨Ê±·¢ËÍº¯Êý£¨ÓÉÖ÷Ñ­»·ÖÜÆÚÐÔµ÷ÓÃ£© ==================== */
-// ·¢ËÍ¼ä¸ô£¨ºÁÃë£©£¬¸ù¾ÝÊµ¼ÊÐèÇóµ÷Õû£¨ÀýÈç 500ms£©
+/* ==================== 5. ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Íºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ­ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ôµï¿½ï¿½Ã£ï¿½ ==================== */
+// ï¿½ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë£©ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 500msï¿½ï¿½
 #define CAN_TX_INTERVAL_MS 500
 
-/* ==================== ÐÞ¸ÄºóµÄÊý¾Ý´¦Àíº¯Êý ==================== */
+/* ==================== ï¿½Þ¸Äºï¿½ï¿½ï¿½ï¿½ï¿½Ý´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ==================== */
 void data_process_9DF0(can_rx_data_t *data, uint8_t len) {
     if (len < 8) return;
 
-    // ¸üÐÂµç»úÖ¸Áî
+    // ï¿½ï¿½ï¿½Âµï¿½ï¿½Ö¸ï¿½ï¿½
     s_can_msg.motor1_cmd = data->id_9DF0.byte0.cmd_m1;
     s_can_msg.motor2_cmd = data->id_9DF0.byte0.cmd_m2;
 
-    // ¸üÐÂ×î¸ßµµÐÅºÅ
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ßµï¿½ï¿½Åºï¿½
     s_can_msg.highest_gear_signal = data->id_9DF0.byte1.highest_gear_signal;
 
-    // ¸üÐÂ en_gk_only ºÍ support_calibration
+    // ï¿½ï¿½ï¿½ï¿½ en_gk_only ï¿½ï¿½ support_calibration
     s_can_msg.en_gk_only = data->id_9DF0.byte2.en_gk_only;
     s_can_msg.support_calibration = data->id_9DF0.byte2.support_calibration;
 
-    // ÆäËû×Ö¶Î£¨ÈçÐèÒª¿ÉÌí¼Ó£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ö¶Î£ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½Ó£ï¿½
 }
 
 void data_process_8018(can_rx_data_t *data, uint8_t len) {
     if (len < 8) return;
-    // ¸üÐÂ support_calibration£¨ÁíÒ»À´Ô´£©
+    // ï¿½ï¿½ï¿½ï¿½ support_calibrationï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½Ô´ï¿½ï¿½
     s_can_msg.support_calibration = data->id_8018.support_calibration;
 }
 
@@ -94,7 +94,7 @@ void data_process_17F0(can_rx_data_t *data, uint8_t len) {
 void data_process_FDF0(can_rx_data_t *data, uint8_t len) {
     if (len < 8) return;
     uint16_t speed_raw = ((uint16_t)data->id_FDF0.speed_high << 8) | data->id_FDF0.speed_low;
-    s_can_msg.speed_general = speed_raw;  // ´æ´¢Ô­Ê¼Öµ (0.1km/h)
+    s_can_msg.speed_general = speed_raw;  // ï¿½æ´¢Ô­Ê¼Öµ (0.1km/h)
 }
 
 void data_process_31F9(can_rx_data_t *data, uint8_t len) {
@@ -109,13 +109,13 @@ void data_process_8818(can_rx_data_t *data, uint8_t len) {
     s_can_msg.ce4p_spc = data->id_8818.byte3.ce4p_spc;
 }
 
-//×´Ì¬·¢²¼
+//×´Ì¬ï¿½ï¿½ï¿½ï¿½
 static void can_publish_stat(void)
 {
 	Msg_Publish(TOPIC_CAN_MSG_RECEIVED, &s_can_msg, sizeof(can_msg_t), MSG_PRIO_HIGH);
 }
 
-/* ==================== ½ÓÊÕ´¦ÀíÖ÷º¯Êý£¨ÐÞ¸Äºó£© ==================== */
+/* ==================== ï¿½ï¿½ï¿½Õ´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Þ¸Äºï¿½ ==================== */
 void app_can_receive(void) {
     stc_can_rx_frame_t rxFrame;
     if (can_read(&can_handle.can_rx, &rxFrame) == CAN_RET_OK) {
@@ -154,65 +154,65 @@ void app_can_receive(void) {
 #if SYS_ENABLE_UDS
                 uds_rx_entry(rx_mess.can_id, rx_mess.data.rx_data, rx_mess.len);
 #endif
-                return;  // Î´Öª ID£¬²»·¢²¼
+                return;  // Î´Öª IDï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         }
-        // Ã¿´Î³É¹¦´¦Àíºó·¢²¼×îÐÂ×´Ì¬
+        // Ã¿ï¿½Î³É¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ó·¢²ï¿½ï¿½ï¿½ï¿½ï¿½×´Ì¬
         can_publish_stat();
     }
 }
 /**
- * @brief ¹¹½¨ ID 0x18FF0108 ·¢ËÍÊý¾Ý£¨µç»ú1£©
- * @param data Ö¸Ïò can_tx_data_t µÄÖ¸Õë£¨ÓÃÓÚÌî³ä£©
- * @param motor µç»ú×´Ì¬Ö¸Õë
+ * @brief ï¿½ï¿½ï¿½ï¿½ ID 0x18FF0108 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½ï¿½1ï¿½ï¿½
+ * @param data Ö¸ï¿½ï¿½ can_tx_data_t ï¿½ï¿½Ö¸ï¿½ë£¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ä£©
+ * @param motor ï¿½ï¿½ï¿½×´Ì¬Ö¸ï¿½ï¿½
  */
 static void build_can_0108(can_tx_data_t *data, const motor_state_t *motor)
 {
-    // Ìî³ä byte0
+    // ï¿½ï¿½ï¿½ byte0
     data->id_0108.byte0.cal_stat = motor->cal_stat;
     data->id_0108.byte0.run_stat = motor->run_stat;
     data->id_0108.byte0.resv0 = 0;
 
-    // ´«¸ÐÆ÷µçÑ¹£¨µÍ×Ö½ÚÔÚÇ°£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½
     data->id_0108.sensor_vol_l = (uint8_t)(motor->sensor_voltage & 0xFF);
     data->id_0108.sensor_vol_h = (uint8_t)(motor->sensor_voltage >> 8);
 
-    // µçÁ÷£¨µÍ×Ö½ÚÔÚÇ°£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½
     data->id_0108.current_l = (uint8_t)(motor->current & 0xFF);
     data->id_0108.current_h = (uint8_t)(motor->current >> 8);
 
-    // ±£Áô×Ö½Ú
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½
     data->id_0108.resv1[0] = 0;
     data->id_0108.resv1[1] = 0;
 
-    // ¹ÊÕÏ×´Ì¬
+    // ï¿½ï¿½ï¿½ï¿½×´Ì¬
     data->id_0108.fault_stat = motor->fault_stat;
 }
 
 /**
- * @brief ¹¹½¨ ID 0x18FF0104 ·¢ËÍÊý¾Ý£¨µç»ú2£©
- * @param data Ö¸Ïò can_tx_data_t µÄÖ¸Õë
- * @param motor µç»ú×´Ì¬Ö¸Õë
+ * @brief ï¿½ï¿½ï¿½ï¿½ ID 0x18FF0104 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½ï¿½2ï¿½ï¿½
+ * @param data Ö¸ï¿½ï¿½ can_tx_data_t ï¿½ï¿½Ö¸ï¿½ï¿½
+ * @param motor ï¿½ï¿½ï¿½×´Ì¬Ö¸ï¿½ï¿½
  */
 static void build_can_0104(can_tx_data_t *data, const motor_state_t *motor)
 {
-    // Ìî³ä byte0£¨Óë0108ÏàÍ¬£©
+    // ï¿½ï¿½ï¿½ byte0ï¿½ï¿½ï¿½ï¿½0108ï¿½ï¿½Í¬ï¿½ï¿½
     data->id_0104.byte0.cal_stat = motor->cal_stat;
     data->id_0104.byte0.run_stat = motor->run_stat;
     data->id_0104.byte0.resv0 = 0;
 
-    // ±£Áô2×Ö½Ú
+    // ï¿½ï¿½ï¿½ï¿½2ï¿½Ö½ï¿½
     data->id_0104.resv1[0] = 0;
     data->id_0104.resv1[1] = 0;
 
-    // µçÁ÷£¨µÍ×Ö½ÚÔÚÇ°£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½
     data->id_0104.current_l = (uint8_t)(motor->current & 0xFF);
     data->id_0104.current_h = (uint8_t)(motor->current >> 8);
 
-    // ´«¸ÐÆ÷µçÑ¹£¨µÍ×Ö½ÚÔÚÇ°£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½
     data->id_0104.sensor_vol_l = (uint8_t)(motor->sensor_voltage & 0xFF);
     data->id_0104.sensor_vol_h = (uint8_t)(motor->sensor_voltage >> 8);
 
-    // ¹ÊÕÏ×´Ì¬
+    // ï¿½ï¿½ï¿½ï¿½×´Ì¬
     data->id_0104.fault_stat = motor->fault_stat;
 }
 
@@ -220,16 +220,16 @@ static void build_can_010A(can_tx_data_t *data, const motor_state_t *motor)
 {
     memset(data, 0, sizeof(can_tx_data_t));
 
-    // byte0: ±ê¶¨/ÔËÐÐ×´Ì¬
+    // byte0: ï¿½ê¶¨/ï¿½ï¿½ï¿½ï¿½×´Ì¬
     data->id_010A.byte0.cal_stat = motor->cal_stat;
     data->id_010A.byte0.run_stat = motor->run_stat;
     data->id_010A.byte0.resv0 = 0;
 
-    // byte1~2: ÍÆ¸ËÐÐ³Ì, 0.1mm, Ð¡¶Ë
+    // byte1~2: ï¿½Æ¸ï¿½ï¿½Ð³ï¿½, 0.1mm, Ð¡ï¿½ï¿½
     data->id_010A.pos_l = (uint8_t)(motor->position & 0xFF);
     data->id_010A.pos_h = (uint8_t)(motor->position >> 8);
 
-    // byte3: ¹ÊÕÏ×´Ì¬ (byte4~7 ±£Áô, memset ÒÑÖÃ0)
+    // byte3: ï¿½ï¿½ï¿½ï¿½×´Ì¬ (byte4~7 ï¿½ï¿½ï¿½ï¿½, memset ï¿½ï¿½ï¿½ï¿½0)
     data->id_010A.fault_stat = motor->fault_stat;
 }
 
@@ -244,20 +244,20 @@ static void build_can_1108(can_tx_data_t *data)
 }
 
 /**
- * @brief ¹¹½¨ ID 0x18FF1108 ·¢ËÍÊý¾Ý ·¢ËÍÈí¼þ°æ±¾ºÅ
- * @param data Ö¸Ïò can_tx_data_t µÄÖ¸Õë
- * @param motor µç»ú×´Ì¬Ö¸Õë
+ * @brief ï¿½ï¿½ï¿½ï¿½ ID 0x18FF1108 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½æ±¾ï¿½ï¿½
+ * @param data Ö¸ï¿½ï¿½ can_tx_data_t ï¿½ï¿½Ö¸ï¿½ï¿½
+ * @param motor ï¿½ï¿½ï¿½×´Ì¬Ö¸ï¿½ï¿½
  */
 
-/* ==================== 4. »ñÈ¡µç»ú×´Ì¬ÐÅÏ¢µÄ½Ó¿Ú£¨Ô¤Áô£© ==================== */
+/* ==================== 4. ï¿½ï¿½È¡ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½Ï¢ï¿½Ä½Ó¿Ú£ï¿½Ô¤ï¿½ï¿½ï¿½ï¿½ ==================== */
 /**
- * @brief ¸üÐÂµç»ú1µÄ×´Ì¬£¨´ÓÓ²¼þ»òËã·¨ÖÐ»ñÈ¡£©
- * ´Ëº¯ÊýÓ¦ÔÚÖ÷Ñ­»·»ò¶¨Ê±Æ÷ÖÐµ÷ÓÃ£¬ÓÃÓÚË¢ÐÂ g_motor1_state
+ * @brief ï¿½ï¿½ï¿½Âµï¿½ï¿½1ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½Ó²ï¿½ï¿½ï¿½ï¿½ï¿½ã·¨ï¿½Ð»ï¿½È¡ï¿½ï¿½
+ * ï¿½Ëºï¿½ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½Ñ­ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Ðµï¿½ï¿½Ã£ï¿½ï¿½ï¿½ï¿½ï¿½Ë¢ï¿½ï¿½ g_motor1_state
  */
 static void update_motor_state(uint8_t motor_idx)
 {
 
-	//±ê¶¨×´Ì¬
+	//ï¿½ê¶¨×´Ì¬
 	if (true == mySystem.axis[motor_idx].is_calib)
 	{
 		g_motor_state[motor_idx].cal_stat = CAL_ENABLE;
@@ -266,7 +266,7 @@ static void update_motor_state(uint8_t motor_idx)
 		g_motor_state[motor_idx].cal_stat = CAL_DISABLE;
 	}
 
-	//ÔËÐÐ×´Ì¬
+	//ï¿½ï¿½ï¿½ï¿½×´Ì¬
 	if (ACT_MODE_CALIB_MODE == mySystem.axis[motor_idx].mode)
 	{
 		if (CALIB_STATE_MANU_OUT == mySystem.axis[motor_idx].sm_calib.cur_state)
@@ -293,7 +293,7 @@ static void update_motor_state(uint8_t motor_idx)
 				g_motor_state[motor_idx].fault_stat = FAULT_STAT_IDLE;
 			}
 		}
-		//Ò»¼ü×Ô¶¯±ê¶¨Ö±½ÓÉÏ±¨ÒÑ±ê¶¨ÒÑ·ÖÀë
+		//Ò»ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ê¶¨Ö±ï¿½ï¿½ï¿½Ï±ï¿½ï¿½Ñ±ê¶¨ï¿½Ñ·ï¿½ï¿½ï¿½
 		else if (CALIB_STATE_AUTO_CALIB_SEP == mySystem.axis[motor_idx].sm_calib.cur_state ||
 			CALIB_STATE_AUTO_CALIB_BACK == mySystem.axis[motor_idx].sm_calib.cur_state)
 		{
@@ -321,13 +321,13 @@ static void update_motor_state(uint8_t motor_idx)
 				g_motor_state[motor_idx].fault_stat = FAULT_STAT_IDLE;
 			}else
 			{
-				if (ACT_STATE_COMBINE_FAIL == mySystem.axis[motor_idx].sm_act.cur_state)//¼¸ÖÖÒì³£µÄ×´Ì¬
+				if (ACT_STATE_COMBINE_FAIL == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½ï¿½ï¿½ï¿½ì³£ï¿½ï¿½×´Ì¬
 				{
 					EventGroup_Send(mySystem.axis[motor_idx].evt_act, EVT_ACT_RESET);
 					g_motor_state[motor_idx].run_stat = RUN_STAT_ERR_COMB;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_ERR_COMB;
 				}
-				else if (ACT_STATE_COMBINE_BACK_2 == mySystem.axis[motor_idx].sm_act.cur_state)//¼¸ÖÖÒì³£µÄ×´Ì¬
+				else if (ACT_STATE_COMBINE_BACK_2 == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½ï¿½ï¿½ï¿½ì³£ï¿½ï¿½×´Ì¬
 				{
 					g_motor_state[motor_idx].run_stat = RUN_STAT_ERR_COMB;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_ERR_COMB;
@@ -358,13 +358,13 @@ static void update_motor_state(uint8_t motor_idx)
 					g_motor_state[motor_idx].run_stat = RUN_STAT_ERR_COMB_GEAR;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_ERR_COMB_GEAR;
 				}
-				else if (ACT_STATE_COMBINE_SUCCESS == mySystem.axis[motor_idx].sm_act.cur_state)//½áºÏ³É¹¦
+				else if (ACT_STATE_COMBINE_SUCCESS == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½Ï³É¹ï¿½
 				{
 					EventGroup_Send(mySystem.axis[motor_idx].evt_act, EVT_ACT_RESET);
 					g_motor_state[motor_idx].run_stat = RUN_STAT_COMB_DONE;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_IDLE;
 				}
-				else if (ACT_STATE_SEPARATE_SUCCESS == mySystem.axis[motor_idx].sm_act.cur_state)//·ÖÀë³É¹¦
+				else if (ACT_STATE_SEPARATE_SUCCESS == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½ï¿½ï¿½É¹ï¿½
 				{
 					EventGroup_Send(mySystem.axis[motor_idx].evt_act, EVT_ACT_RESET);
 					g_motor_state[motor_idx].run_stat = RUN_STAT_SEP_DONE;
@@ -374,7 +374,7 @@ static void update_motor_state(uint8_t motor_idx)
 					ACT_STATE_COMBINE_TRY_1 == mySystem.axis[motor_idx].sm_act.cur_state ||
 					ACT_STATE_COMBINE_TRY_2 == mySystem.axis[motor_idx].sm_act.cur_state ||
 					ACT_STATE_COMBINE_BACK == mySystem.axis[motor_idx].sm_act.cur_state ||
-					ACT_STATE_COMBINE_BACK_1 == mySystem.axis[motor_idx].sm_act.cur_state)//·ÖÀë³É¹¦
+					ACT_STATE_COMBINE_BACK_1 == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½ï¿½ï¿½É¹ï¿½
 				{
 					g_motor_state[motor_idx].run_stat = RUN_STAT_AUTO_COMB;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_IDLE;
@@ -383,7 +383,7 @@ static void update_motor_state(uint8_t motor_idx)
 					ACT_STATE_SEPARATE_TRY_1 == mySystem.axis[motor_idx].sm_act.cur_state ||
 					ACT_STATE_SEPARATE_TRY_2 == mySystem.axis[motor_idx].sm_act.cur_state ||
 					ACT_STATE_SEPARATE_BACK == mySystem.axis[motor_idx].sm_act.cur_state ||
-					ACT_STATE_SEPARATE_BACK_1 == mySystem.axis[motor_idx].sm_act.cur_state)//·ÖÀë³É¹¦
+					ACT_STATE_SEPARATE_BACK_1 == mySystem.axis[motor_idx].sm_act.cur_state)//ï¿½ï¿½ï¿½ï¿½É¹ï¿½
 				{
 					g_motor_state[motor_idx].run_stat = RUN_STAT_AUTO_SEP;
 					g_motor_state[motor_idx].fault_stat = FAULT_STAT_IDLE;
@@ -392,7 +392,7 @@ static void update_motor_state(uint8_t motor_idx)
 					ACT_STATE_OVERSPEED == mySystem.axis[motor_idx].sm_act.cur_state ||
 					ACT_STATE_H_GEAR_NO_COMB == mySystem.axis[motor_idx].sm_act.cur_state)
 				{
-					if (ACT_STATE_COMBINE_FAIL == mySystem.axis[motor_idx].sm_act.previous_state || ACT_STATE_SEPARATE_FAIL == mySystem.axis[motor_idx].sm_act.previous_state)//ÉÏÒ»¸ö×´Ì¬ÊÇ½áºÏ/·ÖÀëÊ§°Ü£¬×´Ì¬²»ÄÜ±ä
+					if (ACT_STATE_COMBINE_FAIL == mySystem.axis[motor_idx].sm_act.previous_state || ACT_STATE_SEPARATE_FAIL == mySystem.axis[motor_idx].sm_act.previous_state)//ï¿½ï¿½Ò»ï¿½ï¿½×´Ì¬ï¿½Ç½ï¿½ï¿½/ï¿½ï¿½ï¿½ï¿½Ê§ï¿½Ü£ï¿½×´Ì¬ï¿½ï¿½ï¿½Ü±ï¿½
 					{
 						//
 					}else
@@ -417,10 +417,10 @@ static void update_motor_state(uint8_t motor_idx)
 		}
 	}
 
-    g_motor_state[motor_idx].sensor_voltage = mySystem.axis[motor_idx].pos_vol;    // ÀýÈç 25.0V
+    g_motor_state[motor_idx].sensor_voltage = mySystem.axis[motor_idx].pos_vol;    // ï¿½ï¿½ï¿½ï¿½ 25.0V
     g_motor_state[motor_idx].current =  mySystem.axis[motor_idx].current;
 
-    // ÍÆ¸ËÐÐ³Ì: 0.1mm; µçÎ»¼ÆÒì³£(µôÏß/Î»ÖÃ´íÎó)Ê±ÖÃ 0xFFFF
+    // ï¿½Æ¸ï¿½ï¿½Ð³ï¿½: 0.1mm; ï¿½ï¿½Î»ï¿½ï¿½ï¿½ì³£(ï¿½ï¿½ï¿½ï¿½/Î»ï¿½Ã´ï¿½ï¿½ï¿½)Ê±ï¿½ï¿½ 0xFFFF
     if (POS_NO == mySystem.axis[motor_idx].pos_err || POS_ERR == mySystem.axis[motor_idx].pos_err)
     {
         g_motor_state[motor_idx].position = 0xFFFF;
@@ -431,7 +431,7 @@ static void update_motor_state(uint8_t motor_idx)
     }
 }
 
-void app_can_set_tx_mgr(uint8_t motor_idx, uint8_t enable) //0 - Ê§ÄÜ£» 1 - Ê¹ÄÜ
+void app_can_set_tx_mgr(uint8_t motor_idx, uint8_t enable) //0 - Ê§ï¿½Ü£ï¿½ 1 - Ê¹ï¿½ï¿½
 {
 	if (0 == motor_idx)
 	{
@@ -444,34 +444,34 @@ void app_can_set_tx_mgr(uint8_t motor_idx, uint8_t enable) //0 - Ê§ÄÜ£» 1 - Ê¹ÄÜ
 
 }
 
-/* Ó¦ÓÃ²ã·¢ËÍº¯Êý£¬ÐèÒª±»¸ßÆµµ÷ÓÃ£¨ÀýÈçÃ¿1ms»ò¸ü¶Ì£© */
+/* Ó¦ï¿½Ã²ã·¢ï¿½Íºï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½Æµï¿½ï¿½ï¿½Ã£ï¿½ï¿½ï¿½ï¿½ï¿½Ã¿1msï¿½ï¿½ï¿½ï¿½Ì£ï¿½ */
 void app_can_transmit(void)
 {
     uint32_t now = SysTick_GetTick();
 
-	/* Ë¢ÐÂµç»ú×´Ì¬£¨»ñÈ¡×îÐÂÊý¾Ý£© */
+	/* Ë¢ï¿½Âµï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ */
     update_motor_state(0);
     update_motor_state(1);
 
-    /* ×´Ì¬0£º¿ÕÏÐ£¬¼ì²éÊÇ·ñ¿ªÆôÐÂÖÜÆÚ£¨500ms£© */
+    /* ×´Ì¬0ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú£ï¿½500msï¿½ï¿½ */
     if (tx_mgr.step == 0) {
         if (now - tx_mgr.last_cycle >= 500) {
             tx_mgr.last_cycle = now;
-            tx_mgr.step = 1;                // ¿ªÊ¼·¢ËÍµÚÒ»Ö¡
-            tx_mgr.next_tx_time = now;      // Á¢¼´·¢ËÍ
+            tx_mgr.step = 1;                // ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½Íµï¿½Ò»Ö¡
+            tx_mgr.next_tx_time = now;      // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         } else {
             return;
         }
     }
 
-    /* µÈ´ý·¢ËÍÊ±»ú */
+    /* ï¿½È´ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ */
     if (now < tx_mgr.next_tx_time) {
         return;
     }
 
     can_tx_data_t tx_data;
 
-    /* °´²½Öè·¢ËÍ */
+    /* ï¿½ï¿½ï¿½ï¿½ï¿½è·¢ï¿½ï¿½ */
     switch (tx_mgr.step) {
         case 1:
 			if (tx_mgr.motor1_enabled)
@@ -527,23 +527,23 @@ void app_can_transmit(void)
             break;
     }
 
-    /* ÒÆ¶¯µ½ÏÂÒ»Ö¡ */
+    /* ï¿½Æ¶ï¿½ï¿½ï¿½ï¿½ï¿½Ò»Ö¡ */
     tx_mgr.step++;
     if (tx_mgr.step > 7) {
-        tx_mgr.step = 0;                // Ò»ÂÖÍê³É£¬»Øµ½¿ÕÏÐ
+        tx_mgr.step = 0;                // Ò»ï¿½ï¿½ï¿½ï¿½É£ï¿½ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿½
         tx_mgr.next_tx_time = 0;
     } else {
-        tx_mgr.next_tx_time = now + 1;  // ¼ä¸ô1ms£¨·Ç×èÈû£©
+        tx_mgr.next_tx_time = now + 1;  // ï¿½ï¿½ï¿½1msï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     }
 }
 
-//Çå³ý±¨ÎÄ±ê¶¨±êÖ¾
+//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä±ê¶¨ï¿½ï¿½Ö¾
 void can_clr_awd_cal(void)
 {
 	s_can_msg.awd_cal_enable = AWD_CAL_DISABLE;
 }
 
-//Çå³ý¶¯×÷ÃüÁî
+//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void can_clr_cmd(uint8_t motor_idx)
 {
 	if (0 == motor_idx)
@@ -556,7 +556,7 @@ void can_clr_cmd(uint8_t motor_idx)
 
 }
 
-//³õÊ¼»¯
+//ï¿½ï¿½Ê¼ï¿½ï¿½
 void app_can_init(void)
 {
 	can_module_init(&can_handle,&CAN_HW);
@@ -565,18 +565,18 @@ void app_can_init(void)
 	UdsOta_Init();
 #endif
 
-	//¸ù¾ÝÅäÖÃÐÅÏ¢¶Ô±¨ÎÄ½øÐÐÊ¹ÄÜ
+	//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½Ô±ï¿½ï¿½Ä½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½
 
 }
 
-//ÖÜÆÚµ÷¶Èº¯Êý
+//ï¿½ï¿½ï¿½Úµï¿½ï¿½Èºï¿½ï¿½ï¿½
 void app_can_task(void)
 {
-	//can½ÓÊÕ
+	//canï¿½ï¿½ï¿½ï¿½
 	app_can_receive();
-	//can·¢ËÍ
+	//canï¿½ï¿½ï¿½ï¿½
 	app_can_transmit();
-	// //×´Ì¬·¢²¼app_can_receive½ÓÊÕµ½Êý¾ÝÔÙ·¢²¼
+	// //×´Ì¬ï¿½ï¿½ï¿½ï¿½app_can_receiveï¿½ï¿½ï¿½Õµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ù·ï¿½ï¿½ï¿½
 	// can_evt_publish(&s_can_msg);
 }
 
