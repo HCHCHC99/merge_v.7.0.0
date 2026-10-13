@@ -19,7 +19,7 @@
 typedef struct {
     uint32_t last_cycle;        // 上一个发送周期的起始时间
     uint32_t next_tx_time;      // 下一帧的发送时间点
-    uint8_t  step;              // 0:空闲, 1~4:发送第几帧
+    uint8_t  step;              // 0:空闲, 1~7:发送第几帧
 
     /* 推杆使能标志 */
     uint8_t motor1_enabled;   // 推杆1使能：1=使能，0=禁用
@@ -216,6 +216,23 @@ static void build_can_0104(can_tx_data_t *data, const motor_state_t *motor)
     data->id_0104.fault_stat = motor->fault_stat;
 }
 
+static void build_can_010A(can_tx_data_t *data, const motor_state_t *motor)
+{
+    memset(data, 0, sizeof(can_tx_data_t));
+
+    // byte0: 标定/运行状态
+    data->id_010A.byte0.cal_stat = motor->cal_stat;
+    data->id_010A.byte0.run_stat = motor->run_stat;
+    data->id_010A.byte0.resv0 = 0;
+
+    // byte1~2: 推杆行程, 0.1mm, 小端
+    data->id_010A.pos_l = (uint8_t)(motor->position & 0xFF);
+    data->id_010A.pos_h = (uint8_t)(motor->position >> 8);
+
+    // byte3: 故障状态 (byte4~7 保留, memset 已置0)
+    data->id_010A.fault_stat = motor->fault_stat;
+}
+
 static void build_can_1108(can_tx_data_t *data)
 {
 	memset(data, 0, sizeof(can_tx_data_t));
@@ -402,6 +419,16 @@ static void update_motor_state(uint8_t motor_idx)
 
     g_motor_state[motor_idx].sensor_voltage = mySystem.axis[motor_idx].pos_vol;    // 例如 25.0V
     g_motor_state[motor_idx].current =  mySystem.axis[motor_idx].current;
+
+    // 推杆行程: 0.1mm; 电位计异常(掉线/位置错误)时置 0xFFFF
+    if (POS_NO == mySystem.axis[motor_idx].pos_err || POS_ERR == mySystem.axis[motor_idx].pos_err)
+    {
+        g_motor_state[motor_idx].position = 0xFFFF;
+    }
+    else
+    {
+        g_motor_state[motor_idx].position = (uint16_t)(mySystem.axis[motor_idx].pos_current * 10.0f);
+    }
 }
 
 void app_can_set_tx_mgr(uint8_t motor_idx, uint8_t enable) //0 - 失能； 1 - 使能
@@ -482,13 +509,27 @@ void app_can_transmit(void)
 			}
 
             break;
+        case 6:
+            if (tx_mgr.motor1_enabled)
+            {
+                build_can_010A(&tx_data, &g_motor_state[0]);
+                can_transmit_ext(0x18FF010A, (uint8_t*)&tx_data, 8);
+            }
+            break;
+        case 7:
+            if (tx_mgr.motor2_enabled)
+            {
+                build_can_010A(&tx_data, &g_motor_state[1]);
+                can_transmit_ext(0x18FF010B, (uint8_t*)&tx_data, 8);
+            }
+            break;
         default:
             break;
     }
 
     /* 移动到下一帧 */
     tx_mgr.step++;
-    if (tx_mgr.step > 5) {
+    if (tx_mgr.step > 7) {
         tx_mgr.step = 0;                // 一轮完成，回到空闲
         tx_mgr.next_tx_time = 0;
     } else {

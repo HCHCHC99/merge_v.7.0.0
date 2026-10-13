@@ -223,6 +223,19 @@ typedef struct {
     fault_stat_t fault_stat;
 } can_18FF0104_t;
 
+/** ID: 18FF010A / 18FF010B (电机1/2 推杆行程上报, 单位 0.1mm) */
+typedef struct {
+    struct {
+        cal_stat_t cal_stat : 2;
+        run_stat_t run_stat : 4;
+        uint8_t    resv0    : 2;
+    } byte0;
+    uint8_t      pos_l;       /* 行程 低字节 (0.1mm) */
+    uint8_t      pos_h;       /* 行程 高字节 (0.1mm); 0xFFFF = 无效 */
+    fault_stat_t fault_stat;  /* 故障状态 */
+    uint8_t      resv1[4];    /* byte4~7 保留, 置0 */
+} can_18FF010A_t;
+
 /*==============================================================================
  * 收发联合体 — 按 CAN ID 解释 8 字节数据
  *============================================================================*/
@@ -244,6 +257,7 @@ typedef union {
     uint8_t          tx_data[8];
     can_18FF0108_t   id_0108;       /* 18FF0108 / 18FF0109 */
     can_18FF0104_t   id_0104;       /* 18FF0104 / 18FF0105 */
+    can_18FF010A_t   id_010A;       /* 18FF010A / 18FF010B */
 } can_tx_data_t;
 
 /** CAN 接收消息 (完整一帧) */
