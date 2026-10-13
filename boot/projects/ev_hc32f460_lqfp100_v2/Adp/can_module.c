@@ -1,0 +1,353 @@
+/**
+ * @file    can_module.c
+ * @brief   CAN 硬件抽象层 (HAL) — 纯硬件接口实现
+ * @note    支持 TX 完成中断回调
+ */
+
+/** 文件包含 **/
+#include "can_module.h"
+#include <string.h>
+#include <stdbool.h>
+
+/*==============================================================================
+ * 本地变量
+ *============================================================================*/
+
+/* TX 完成回调函数指针 */
+static can_tx_callback_t m_pfnTxCallback = NULL;
+
+/* TX 忙状态标志 */
+static volatile bool m_bTxBusy = false;
+
+/* RX 缓存指针 (用于中断中接收) */
+static can_rx_cache_t *m_pRxCache = NULL;
+
+/*==============================================================================
+ * 本地函数原型
+ *============================================================================*/
+
+static void can_gpio_init(const can_gpio_t *gpio);
+static void can_cfg_bdr_init(can_bdr_t can_bdr, const can_bittime_t *bit_time, 
+                              stc_can_bit_time_config_t *stcBitCfg);
+static void can_cfg_init(CM_CAN_TypeDef *CANx, const can_cfg_t *cfg);
+static void can_int_cfg(CM_CAN_TypeDef *CANx, const uint32_t int_type, 
+                         const can_int_t *can_int);
+
+/*==============================================================================
+ * 内部函数实现
+ *============================================================================*/
+
+/** 内部 -- GPIO初始化 **/
+static void can_gpio_init(const can_gpio_t *gpio)
+{
+    if (gpio == NULL) return;
+    GPIO_SetFunc(gpio->port, gpio->pin, gpio->func);
+}
+
+/** 内部 -- 波特率 **/
+static void can_cfg_bdr_init(can_bdr_t can_bdr, const can_bittime_t *bit_time, 
+                              stc_can_bit_time_config_t *stcBitCfg)
+{
+    if (stcBitCfg == NULL) return;
+
+    if (CAN_BDR_CUSTOM == can_bdr) {
+        if (bit_time == NULL) return;
+        stcBitCfg->u32Prescaler = bit_time->presc;
+        stcBitCfg->u32TimeSeg1  = bit_time->seg_1;
+        stcBitCfg->u32TimeSeg2  = bit_time->seg_2;
+        stcBitCfg->u32SJW       = bit_time->sjw;
+    }
+    else if (CAN_BDR_250K == can_bdr) {
+        stcBitCfg->u32Prescaler = 4U;
+        stcBitCfg->u32TimeSeg1  = 6U;
+        stcBitCfg->u32TimeSeg2  = 2U;
+        stcBitCfg->u32SJW       = 2U;
+    }
+    else if (CAN_BDR_500K == can_bdr) {
+        stcBitCfg->u32Prescaler = 2U;
+        stcBitCfg->u32TimeSeg1  = 6U;
+        stcBitCfg->u32TimeSeg2  = 2U;
+        stcBitCfg->u32SJW       = 2U;
+    }
+    else if (CAN_BDR_1M == can_bdr) {
+        stcBitCfg->u32Prescaler = 1U;
+        stcBitCfg->u32TimeSeg1  = 6U;
+        stcBitCfg->u32TimeSeg2  = 2U;
+        stcBitCfg->u32SJW       = 2U;
+    }
+}
+
+/** 内部 -- can基础配置 **/
+static void can_cfg_init(CM_CAN_TypeDef *CANx, const can_cfg_t *cfg)
+{
+    stc_can_init_t stcCanInit;
+        
+    /* Enable peripheral clock of CAN. */
+    FCG_Fcg1PeriphClockCmd(FCG1_PERIPH_CAN, ENABLE);
+    /* Initializes CAN. */
+    (void)CAN_StructInit(&stcCanInit);
+    
+    stc_can_filter_config_t astcFilter[1] = {
+        {0UL, 0x18FFFFFFUL, CAN_ID_STD_EXT}
+    };
+    
+    /* 波特率 */
+    can_cfg_bdr_init(cfg->can_bdr, &cfg->bit_time, &stcCanInit.stcBitCfg);
+    
+    /* mode */
+    stcCanInit.u8WorkMode = cfg->work_mode;
+    
+    /* 滤波器 */
+    stcCanInit.u16FilterSelect = CAN_FILTER1;
+    stcCanInit.pstcFilter = astcFilter;
+    
+    /* TX */
+    stcCanInit.u8PTBSingleShotTx = cfg->can_tx_cfg.en_ptb_single_shot;
+    stcCanInit.u8STBSingleShotTx = cfg->can_tx_cfg.en_stb_single_shot;
+    stcCanInit.u8STBPrioMode = cfg->can_tx_cfg.en_stb_prio_md;
+    
+    /* RX */
+    stcCanInit.u8RxWarnLimit = cfg->can_rx_cfg.rx_warn_lmt;
+    stcCanInit.u8ErrorWarnLimit = cfg->can_rx_cfg.err_warn_lmt;
+    stcCanInit.u8RxAllFrame = cfg->can_rx_cfg.rx_all_frame;
+    stcCanInit.u8RxOvfMode = cfg->can_rx_cfg.rx_ovf_mode;
+    stcCanInit.u8SelfAck = cfg->can_rx_cfg.self_ack;
+    
+    (void)CAN_Init(CANx, &stcCanInit);
+}
+
+/** 内部 -- 中断配置 **/
+static void can_int_cfg(CM_CAN_TypeDef *CANx, const uint32_t int_type, 
+                         const can_int_t *can_int)
+{
+    stc_irq_signin_config_t stcIrq;
+    
+    if (can_int == NULL) return;
+    if (0 == int_type) return;
+    
+    if (CANx == CM_CAN) {
+        /* IRQ sign-in */
+        stcIrq.enIntSrc = INT_SRC_CAN_INT;
+        stcIrq.enIRQn = can_int->can_int_irqn;
+        stcIrq.pfnCallback = can_int->can_int_callback;
+        (void)INTC_IrqSignIn(&stcIrq);
+        
+        /* NVIC config */
+        NVIC_ClearPendingIRQ(can_int->can_int_irqn);
+        NVIC_SetPriority(can_int->can_int_irqn, can_int->can_int_pri);
+        NVIC_EnableIRQ(can_int->can_int_irqn);
+        
+        CAN_IntCmd(CANx, CAN_INT_ALL, DISABLE);
+        CAN_IntCmd(CANx, int_type, ENABLE);
+    }
+}
+
+/*==============================================================================
+ * 外部 API 实现
+ *============================================================================*/
+
+/** 外部 -- CAN模块初始化 **/
+int32_t can_module_init(can_handle_t *handle, const can_cfg_t *cfg)
+{
+    if (handle == NULL || cfg == NULL) return -1;
+    
+    /* 保存 RX 缓存指针供中断使用 */
+    m_pRxCache = &handle->can_rx;
+    
+    /* 复制配置 */
+    handle->cfg_hw = cfg;
+    handle->initialized = 0;
+    
+    /* 清空 RX 缓存 */
+    memset(&handle->can_rx, 0, sizeof(can_rx_cache_t));
+    
+    /* GPIO初始化 */
+    can_gpio_init(&cfg->gpio_tx);
+    can_gpio_init(&cfg->gpio_rx);
+    
+    /* 配置初始化 */
+    can_cfg_init(handle->cfg_hw->CANx, handle->cfg_hw);
+    
+    /* 中断配置 (使用 can_module_irq_handler 作为中断处理函数) */
+    can_int_cfg(handle->cfg_hw->CANx, handle->cfg_hw->can_int_type, &handle->cfg_hw->can_int);
+    
+    handle->initialized = 1;
+    return CAN_RET_OK;
+}
+
+/** 外部 -- 注册 TX 完成回调 **/
+void can_register_tx_callback(can_tx_callback_t pfnCallback)
+{
+    m_pfnTxCallback = pfnCallback;
+}
+
+/** 外部 -- 获取 TX 忙状态 **/
+bool can_is_tx_busy(void)
+{
+    return m_bTxBusy;
+}
+
+/** 外部 -- 强制清除 TX 忙标志 (TX 卡死恢复时由适配层调用) **/
+void can_tx_force_idle(void)
+{
+    m_bTxBusy = false;
+}
+
+/** 外部 -- CAN发送标准帧 **/
+int8_t can_transmit_std(uint32_t id, uint8_t *pData, uint8_t Len)
+{
+    if (Len > 8) {
+        return CAN_RET_ERR_PARAM;
+    }
+    
+    stc_can_tx_frame_t tx;
+    tx.u32Ctrl = 0x0UL;
+    tx.u32ID = id;
+    tx.RTR = 0;
+    tx.IDE = 0;
+    tx.DLC = Len;
+    
+    for (uint8_t i = 0; i < Len; i++) {
+        tx.au8Data[i] = *pData;
+        pData++;
+    }
+    
+    CAN_FillTxFrame(CM_CAN, CAN_TX_BUF_PTB, &tx);
+    CAN_StartTx(CM_CAN, CAN_TX_REQ_PTB);
+    m_bTxBusy = true;
+    
+    return CAN_RET_OK;
+}
+
+/** 外部 -- CAN发送扩展帧 **/
+int8_t can_transmit_ext(uint32_t id, uint8_t *pData, uint8_t Len)
+{
+    if (Len > 8) {
+        return CAN_RET_ERR_PARAM;
+    }
+    
+    stc_can_tx_frame_t tx;
+    tx.u32Ctrl = 0x0UL;
+    tx.u32ID = id;
+    tx.RTR = 0;
+    tx.IDE = 1;
+    tx.DLC = Len;
+    
+    for (uint8_t i = 0; i < Len; i++) {
+        tx.au8Data[i] = *pData;
+        pData++;
+    }
+    
+    CAN_FillTxFrame(CM_CAN, CAN_TX_BUF_PTB, &tx);
+    CAN_StartTx(CM_CAN, CAN_TX_REQ_PTB);
+    m_bTxBusy = true;
+    
+    return CAN_RET_OK;
+}
+
+/** 外部 -- 将一帧 CAN 数据放入接收缓存 **/
+int8_t can_rx_cache_put(can_rx_cache_t *pstcCache, const stc_can_rx_frame_t *pstcFrame)
+{
+    if (pstcCache == NULL || pstcFrame == NULL) {
+        return CAN_RET_ERR_PARAM;
+    }
+    
+    pstcCache->rx_frame[pstcCache->write_idx] = *pstcFrame;
+    pstcCache->write_idx = (pstcCache->write_idx + 1) % CAN_RX_BUF_SIZE;
+    
+    if (pstcCache->cnt < CAN_RX_BUF_SIZE) {
+        pstcCache->cnt++;
+    } else {
+        pstcCache->read_idx = (pstcCache->read_idx + 1) % CAN_RX_BUF_SIZE;
+    }
+    
+    return CAN_RET_OK;
+}
+
+/** 外部 -- 从接收缓存读取一帧 **/
+int8_t can_read(can_rx_cache_t *pstcCache, stc_can_rx_frame_t *pstcFrame)
+{
+    if (pstcCache == NULL || pstcFrame == NULL) {
+        return CAN_RET_ERR_PARAM;
+    }
+    
+    if (pstcCache->cnt == 0) {
+        return CAN_RET_ERR_NODATA;
+    }
+    
+    *pstcFrame = pstcCache->rx_frame[pstcCache->read_idx];
+    pstcCache->read_idx = (pstcCache->read_idx + 1) % CAN_RX_BUF_SIZE;
+    pstcCache->cnt--;
+    
+    return CAN_RET_OK;
+}
+
+/** 外部 -- 轮询接收 **/
+void can_receive_poll(can_rx_cache_t *rx)
+{
+    /* 中断已经自动处理接收，此函数用于主循环安全网 */
+    /* 如果中断处理有遗漏，可以在此补充读取 */
+    stc_can_rx_frame_t frame;
+    while (CAN_GetRxFrame(CM_CAN, &frame) == LL_OK) {
+        can_rx_cache_put(rx, &frame);
+    }
+}
+
+/*==============================================================================
+ * 中断处理函数 (由适配层注册到中断控制器)
+ *============================================================================*/
+
+/**
+ * @brief CAN 中断处理函数
+ * @note  在 CAN 中断上下文中调用，处理 RX 接收、TX 完成回调、错误标志
+ *        此函数由适配层通过 can_int_callback 注册到中断控制器
+ */
+void can_module_irq_handler(void)
+{
+    uint32_t u32Status;
+    stc_can_rx_frame_t stcRxFrame;
+    
+    u32Status = CAN_GetStatusValue(CM_CAN);
+    if (u32Status != 0U) {
+        CAN_ClearStatus(CM_CAN, u32Status);
+    }
+    
+    /* ========== RX 接收处理 ========== */
+    if ((u32Status & CAN_FLAG_RX) != 0U) {
+        while (CAN_GetRxFrame(CM_CAN, &stcRxFrame) == LL_OK) {
+            if (m_pRxCache != NULL) {
+                can_rx_cache_put(m_pRxCache, &stcRxFrame);
+            }
+        }
+    }
+    
+    /* ========== TX 完成回调 ========== */
+    if ((u32Status & CAN_FLAG_PTB_TX) != 0U) {
+        m_bTxBusy = false;
+        if (m_pfnTxCallback != NULL) {
+            m_pfnTxCallback();
+        }
+    }
+
+    /* ========== TX 异常兜底: 单发(single-shot)失败不会置 PTB_TX 完成标志 ==========
+     * 场景: CAN 收发器无供电/总线故障时, 发送失败但 TPIF 永不触发,
+     *       m_bTxBusy 卡死导致上层 TX queue full 死锁。
+     * 判据: 忙标志仍在 + 出现错误/中止类标志 + 总线已不在发送(TACTIVE=0)
+     *       -> 本次发送已被硬件终止, 强制解锁并推进软件队列。 */
+    if (m_bTxBusy &&
+        ((u32Status & (CAN_FLAG_BUS_ERR | CAN_FLAG_ARBITR_LOST |
+                       CAN_FLAG_TX_ABORTED | CAN_FLAG_BUS_OFF)) != 0U)) {
+        if ((CAN_GetStatusValue(CM_CAN) & CAN_FLAG_TX_GOING) == 0U) {
+            m_bTxBusy = false;
+            if (m_pfnTxCallback != NULL) {
+                m_pfnTxCallback();
+            }
+        }
+    }
+
+    /* ========== 错误 / Bus-Off 检测 ========== */
+    if ((u32Status & CAN_FLAG_ERR_INT) != 0U) {
+        /* Bus-Off 状态由上层通过 CAN_GetStatusValue 检测 */
+        /* 这里只做错误标志清除，不做额外处理 */
+    }
+}

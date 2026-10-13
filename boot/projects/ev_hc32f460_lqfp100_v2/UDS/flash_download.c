@@ -1,0 +1,749 @@
+#include "flash_download.h"
+#include "Bootloader_App.h"
+#include "flash_advanced.h"
+#include "rtt_log.h"
+#include "TickTimer.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+// ============ 调试宏 ============
+#define FW_LOG_D(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_DEBUG, COLOR_CYAN,   "FW", fmt, ##__VA_ARGS__)
+#define FW_LOG_I(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_INFO,  COLOR_GREEN, "FW", fmt, ##__VA_ARGS__)
+#define FW_LOG_W(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_WARN,  COLOR_YELLOW,"FW", fmt, ##__VA_ARGS__)
+#define FW_LOG_E(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_ERROR, COLOR_RED,   "FW", fmt, ##__VA_ARGS__)
+
+// ============ BIN数据打印宏 ============
+// #define PRINTF_BIN
+#ifdef PRINTF_BIN
+#define BIN_OTA(fmt, ...)  LOG_CH(LOG_CH_MAIN, LOG_LEVEL_DEBUG, COLOR_CYAN, "OTA", fmt, ##__VA_ARGS__)
+#define BIN_MAGIC_LEN      8
+#define BIN_BYTES_PER_LINE 16
+static const uint8_t g_bin_magic[BIN_MAGIC_LEN] = {0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78};
+static bool g_bin_triggered = false;
+#endif
+
+// ============ 配置参数 ============
+#define FW_DEFAULT_MAX_SIZE         FW_MAX_FIRMWARE_SIZE    // default max = APP_MAX_SIZE
+#define FW_DEFAULT_SECTOR_SIZE      FLASH_SECTOR_SIZE          // 8KB扇区
+#define FW_DEFAULT_VERIFY_ENABLED   1               // 默认启用校验
+#define FW_DEFAULT_AUTO_RESET       0               // 默认不自动复位
+
+// 传输看门狗: 0x34 之后(READY/TRANSFERRING)超过该时间无新 0x36 数据块
+// (如 CAN 断线/TBOX 异常), 自动回 IDLE 支持重新刷写
+#define FW_TRANSFER_TIMEOUT_MS      2000U
+
+// ============ RAM缓冲区（保留用于打印） ============
+// 用于暂存固件数据，便于打印调试
+static uint8_t g_fw_ram_buffer[FW_RAM_BUFFER_SIZE] __attribute__((aligned(4)));
+
+// ============ 内部状态结构 ============
+typedef struct
+{
+    // 状态
+    FlashDownloadState_t state;
+    FlashDownloadResult_t last_error;
+    
+    // 升级参数
+    uint32_t target_address;
+    uint32_t total_size;
+    uint32_t received_size;
+    
+    // RAM缓冲区偏移（保留用于打印）
+    uint32_t buffer_offset;
+    
+    // 序列号
+    uint8_t expected_sequence;
+    
+    // 配置
+    FlashDownloadConfig_t config;
+    
+    // Flash句柄
+    FlashAdvHandle_t* flash_handle;
+    
+    // 统计
+    uint32_t sector_erased_count;
+    uint32_t block_written_count;
+    
+    // 延迟处理标志（用于NRC 0x78）
+    bool pending_response;
+    
+    // 接收过程中实时计算的CRC
+    uint32_t rx_crc;
+    
+    // 擦除标志（记录是否已擦除）
+    bool erased;
+
+    // 传输看门狗时基: 最近一次收到下载数据的时刻 (0x34 完成/0x36 每块成功时刷新)
+    uint64_t last_block_tick;
+
+} FlashDownloadContext_t;
+
+// ============ 全局上下文 ============
+static FlashDownloadContext_t g_fw_ctx;
+static bool g_fw_initialized = false;
+
+// ============ 内部函数声明 ============
+static void fw_set_state(FlashDownloadState_t new_state);
+static void fw_set_error(FlashDownloadResult_t error);
+static bool fw_is_address_valid(uint32_t address);
+static bool fw_is_address_protected(uint32_t address);
+static uint32_t fw_get_sector_start(uint32_t address);
+static FlashDownloadResult_t fw_erase_range(uint32_t start_addr, uint32_t end_addr);
+static FlashDownloadResult_t fw_write_buffer_to_flash(uint32_t flash_addr, const uint8_t* buffer, uint32_t size);
+static uint32_t fw_calculate_crc32(const uint8_t* data, uint32_t len);
+
+// ============ 内部函数实现 ============
+
+static void fw_set_state(FlashDownloadState_t new_state)
+{
+    if (g_fw_ctx.state != new_state) {
+        FW_LOG_I("State: %d -> %d", g_fw_ctx.state, new_state);
+        g_fw_ctx.state = new_state;
+    }
+}
+
+static void fw_set_error(FlashDownloadResult_t error)
+{
+    g_fw_ctx.last_error = error;
+    FW_LOG_E("Error set: %d", error);
+}
+
+static bool fw_is_address_valid(uint32_t address)
+{
+#if FW_FLASH_WRITE_ENABLED
+    /* 先进行地址映射 */
+    uint32_t mapped_addr = MAP_TBOX_ADDR_TO_FLASH(address);
+#if (BOOT_OTA_DUAL_WINDOW_EN == 1U)
+    /* 双窗口: APP1 或 APP2（调试Plus/正式模式） */
+    return ((mapped_addr >= FW_APP1_START_ADDR && mapped_addr < (FW_APP1_START_ADDR + FW_APP_MAX_SIZE)) ||
+            (mapped_addr >= FW_APP_START_ADDR  && mapped_addr < (FW_APP_START_ADDR + FW_APP_MAX_SIZE)));
+#else
+    /* 调试模式: 仅 APP2 */
+    return (mapped_addr >= FW_APP_START_ADDR && mapped_addr < (FW_APP_START_ADDR + FW_APP_MAX_SIZE));
+#endif
+#else
+    (void)address;
+    return true;
+#endif
+}
+
+static bool fw_is_address_protected(uint32_t address)
+{
+    if (g_fw_ctx.flash_handle == NULL) {
+        return false;
+    }
+    return FlashAdv_IsAddressProtected(g_fw_ctx.flash_handle, address);
+}
+
+static uint32_t fw_get_sector_start(uint32_t address)
+{
+    return address & ~(g_fw_ctx.config.flash_sector_size - 1);
+}
+
+/**
+ * @brief 擦除指定地址范围（自动对齐到扇区边界）
+ */
+static FlashDownloadResult_t fw_erase_range(uint32_t start_addr, uint32_t end_addr)
+{
+    if (g_fw_ctx.flash_handle == NULL) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    uint32_t sector_size = g_fw_ctx.config.flash_sector_size;
+    uint32_t start_sector = fw_get_sector_start(start_addr);
+    uint32_t end_sector = fw_get_sector_start(end_addr);
+    uint32_t erased_count = 0;
+    uint32_t skipped_count = 0;
+    
+    FW_LOG_I("Erasing range: 0x%08X - 0x%08X", start_sector, end_sector);
+    
+    for (uint32_t sector_addr = start_sector; sector_addr <= end_sector; sector_addr += sector_size) {
+        
+        // 检查保护区域
+        if (fw_is_address_protected(sector_addr)) {
+            FW_LOG_W("Skipping protected sector at 0x%08X", sector_addr);
+            skipped_count++;
+            continue;
+        }
+        
+        // 执行擦除
+        FlashAdvStatus_t status = FlashAdv_EraseSector(g_fw_ctx.flash_handle, sector_addr);
+        if (status != FLASH_ADV_OK) {
+            FW_LOG_E("Erase failed at 0x%08X, status=%d", sector_addr, status);
+            return FW_RESULT_ERASE_FAILED;
+        }
+        
+        erased_count++;
+        g_fw_ctx.sector_erased_count++;
+        
+        FW_LOG_D("Erased sector at 0x%08X", sector_addr);
+    }
+    
+    FW_LOG_I("Erase complete: %d erased, %d skipped", erased_count, skipped_count);
+    return FW_RESULT_OK;
+}
+
+/**
+ * @brief 将数据写入Flash（4字节对齐写入）
+ */
+static FlashDownloadResult_t fw_write_buffer_to_flash(uint32_t flash_addr, const uint8_t* buffer, uint32_t size)
+{
+    if (g_fw_ctx.flash_handle == NULL) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    // 检查地址有效性
+    if (!fw_is_address_valid(flash_addr)) {
+        FW_LOG_E("Write address invalid: 0x%08X", flash_addr);
+        return FW_RESULT_ADDR_INVALID;
+    }
+    
+    // 检查保护区域
+    if (fw_is_address_protected(flash_addr)) {
+        FW_LOG_E("Write address protected: 0x%08X", flash_addr);
+        return FW_RESULT_ADDR_INVALID;
+    }
+    
+    // 计算需要写入的字数（4字节对齐）
+    uint32_t word_count = (size + 3) / 4;
+    
+    // 使用全局对齐缓冲区（g_fw_ram_buffer 已 4 字节对齐），避免栈上分配 8KB
+    memcpy(g_fw_ram_buffer, buffer, size);
+    for (uint32_t i = size; i < word_count * 4; i++) {
+        g_fw_ram_buffer[i] = 0xFF;  // 填充0xFF
+    }
+
+    FW_LOG_D("Writing to Flash: addr=0x%08X, size=%d, words=%d",
+             flash_addr, size, word_count);
+
+    // 写入Flash（带校验）
+    FlashAdvStatus_t status = FlashAdv_BulkWriteSimple(
+        g_fw_ctx.flash_handle,
+        flash_addr,
+        (uint32_t*)g_fw_ram_buffer,
+        word_count
+    );
+    
+    if (status != FLASH_ADV_OK) {
+        FW_LOG_E("Write failed at 0x%08X, status=%d", flash_addr, status);
+        return FW_RESULT_WRITE_FAILED;
+    }
+    
+    g_fw_ctx.block_written_count++;
+    
+    return FW_RESULT_OK;
+}
+
+/**
+ * @brief 简单CRC32计算（用于校验）
+ */
+static uint32_t fw_calculate_crc32(const uint8_t* data, uint32_t len)
+{
+    uint32_t crc = 0xFFFFFFFF;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1) {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return ~crc;
+}
+
+// ============ 公共接口实现 ============
+
+void FlashDownload_Init(const FlashDownloadConfig_t* config)
+{
+    FW_LOG_I("=== Flash Download Init Start ===");
+    
+    memset(&g_fw_ctx, 0, sizeof(g_fw_ctx));
+    
+    // 设置默认配置
+    g_fw_ctx.config.max_firmware_size = FW_DEFAULT_MAX_SIZE;
+    g_fw_ctx.config.flash_sector_size = FW_DEFAULT_SECTOR_SIZE;
+    g_fw_ctx.config.verify_enabled = FW_DEFAULT_VERIFY_ENABLED;
+    g_fw_ctx.config.auto_reset_on_complete = FW_DEFAULT_AUTO_RESET;
+    
+    // 如果提供了配置，覆盖默认值
+    if (config != NULL) {
+        if (config->max_firmware_size > 0) {
+            g_fw_ctx.config.max_firmware_size = config->max_firmware_size;
+        }
+        if (config->flash_sector_size > 0) {
+            g_fw_ctx.config.flash_sector_size = config->flash_sector_size;
+        }
+        g_fw_ctx.config.verify_enabled = config->verify_enabled;
+        g_fw_ctx.config.auto_reset_on_complete = config->auto_reset_on_complete;
+    }
+    
+    // 初始化Flash高级句柄
+    FlashAdvConfig_t flash_cfg = {
+        .base_address = 0x00000000,
+        .sector_size = g_fw_ctx.config.flash_sector_size,
+        .total_size = 0x80000,          // 512KB
+        .protected_size = 0,
+        .max_erase_cycles = 10000
+    };
+    
+    g_fw_ctx.flash_handle = FlashAdv_Create(&flash_cfg, NULL);
+    
+    // 获取用户可用区域
+    FlashAdv_GetUserRegion(&g_fw_ctx.config.user_start_addr,
+                           &g_fw_ctx.config.user_end_addr,
+                           NULL);
+    
+    if (g_fw_ctx.config.user_start_addr == 0) {
+        // 如果获取失败，使用默认值（扇区10-62）
+        g_fw_ctx.config.user_start_addr = 10 * g_fw_ctx.config.flash_sector_size;
+        g_fw_ctx.config.user_end_addr = 63 * g_fw_ctx.config.flash_sector_size;
+    }
+    
+    g_fw_ctx.state = FW_UPDATE_IDLE;
+    g_fw_ctx.last_error = FW_RESULT_OK;
+    g_fw_ctx.erased = false;
+    
+    FW_LOG_I("User flash range: 0x%08X - 0x%08X",
+             g_fw_ctx.config.user_start_addr, g_fw_ctx.config.user_end_addr);
+    FW_LOG_I("Max firmware size: %d KB", g_fw_ctx.config.max_firmware_size / 1024);
+    FW_LOG_I("=== Flash Download Init Done ===");
+    
+    g_fw_initialized = true;
+}
+
+FlashDownloadResult_t FlashDownload_OnRequestDownload(uint32_t address, uint32_t size)
+{
+    uint32_t end_addr;
+    uint32_t start_sector;
+    uint32_t end_sector;
+    FlashDownloadResult_t erase_result;
+    uint32_t mapped_addr;
+    
+    if (!g_fw_initialized) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    /* 地址映射：将 TBOX 地址转换为实际 Flash 地址 */
+    mapped_addr = MAP_TBOX_ADDR_TO_FLASH(address);
+    
+    FW_LOG_I(">>> OnRequestDownload: orig_addr=0x%08X, mapped_addr=0x%08X, size=%d bytes", 
+             address, mapped_addr, size);
+    
+    // 状态检查：必须处于 IDLE
+#if FINISHED_REPEAT_REC
+    if (g_fw_ctx.state != FW_UPDATE_IDLE && g_fw_ctx.state != FW_UPDATE_COMPLETE) {
+#else
+    if (g_fw_ctx.state != FW_UPDATE_IDLE) {
+#endif
+        FW_LOG_W("Wrong state for download: %d", g_fw_ctx.state);
+        return FW_RESULT_BUSY;
+    }
+    
+    // 地址有效性检查（使用映射后的地址）
+    if (!fw_is_address_valid(mapped_addr)) {
+        FW_LOG_E("Invalid address: orig=0x%08X, mapped=0x%08X", address, mapped_addr);
+        return FW_RESULT_ADDR_INVALID;
+    }
+    
+    // 大小检查
+    if (size == 0 || size > g_fw_ctx.config.max_firmware_size) {
+        FW_LOG_E("Invalid size: %d (max=%d)", size, g_fw_ctx.config.max_firmware_size);
+        return FW_RESULT_SIZE_TOO_LARGE;
+    }
+    
+    // 检查RAM缓冲区是否足够（保留用于打印）
+    // if (size > FW_RAM_BUFFER_SIZE) {
+    //     FW_LOG_E("Firmware size %d exceeds RAM buffer %d", size, FW_RAM_BUFFER_SIZE);
+    //     return FW_RESULT_SIZE_TOO_LARGE;
+    // }
+    
+    // 记录升级参数（使用映射后的地址）
+    g_fw_ctx.target_address = mapped_addr;
+    g_fw_ctx.total_size = ((size + 255) / 256) * 256;  // 向上取整到256字节
+    g_fw_ctx.received_size = 0;
+    g_fw_ctx.buffer_offset = 0;
+    g_fw_ctx.expected_sequence = 1;
+    g_fw_ctx.sector_erased_count = 0;
+    g_fw_ctx.block_written_count = 0;
+    g_fw_ctx.rx_crc = 0xFFFFFFFF;  // 初始化CRC
+    g_fw_ctx.erased = false;
+    
+#if FW_FLASH_WRITE_ENABLED
+    // ============ 立即擦除（按扇区对齐） ============
+    // 1. 按256字节向上取整后的地址范围
+    end_addr = mapped_addr + g_fw_ctx.total_size - 1;
+    
+    // 2. 按扇区对齐（8KB对齐）
+    start_sector = fw_get_sector_start(mapped_addr);
+    end_sector = fw_get_sector_start(end_addr);
+    
+    FW_LOG_I("Preparing to erase: addr_range=0x%08X-0x%08X, sector_range=0x%08X-0x%08X",
+             mapped_addr, end_addr, start_sector, end_sector);
+    
+    // 3. 执行擦除
+    erase_result = fw_erase_range(start_sector, end_sector + g_fw_ctx.config.flash_sector_size - 1);
+    if (erase_result != FW_RESULT_OK) {
+        FW_LOG_E("Erase failed during RequestDownload");
+        return erase_result;
+    }
+    
+    g_fw_ctx.erased = true;
+#else
+    FW_LOG_I("Flash write DISABLED (FW_FLASH_WRITE_ENABLED=0), skipping erase");
+#endif
+    
+    // 状态变为 READY（准备接收数据）, 看门狗从此刻起计时
+    g_fw_ctx.last_block_tick = tickTimer_GetCount();
+    fw_set_state(FW_UPDATE_READY);
+    
+    return FW_RESULT_OK;
+}
+
+FlashDownloadResult_t FlashDownload_OnTransferData(uint8_t block_sequence_number,
+                                                    uint8_t* data,
+                                                    uint16_t len)
+{
+    uint32_t write_addr;
+    FlashDownloadResult_t write_result;
+    
+    if (!g_fw_initialized) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    FW_LOG_D(">>> OnTransferData: seq=%d, len=%d", block_sequence_number, len);
+    
+    // 状态检查
+    if (g_fw_ctx.state != FW_UPDATE_READY && g_fw_ctx.state != FW_UPDATE_TRANSFERRING) {
+        FW_LOG_W("Wrong state for transfer: %d", g_fw_ctx.state);
+        return FW_RESULT_NOT_READY;
+    }
+    
+    // 序列号检查
+    if (block_sequence_number != g_fw_ctx.expected_sequence) {
+        FW_LOG_W("Sequence mismatch: expected=%d, got=%d",
+                 g_fw_ctx.expected_sequence, block_sequence_number);
+        return FW_RESULT_SEQUENCE_ERROR;
+    }
+    
+    // 检查是否超出总大小
+    if (g_fw_ctx.received_size + len > g_fw_ctx.total_size) {
+        FW_LOG_E("Would exceed total size: received=%d, add=%d, total=%d",
+                 g_fw_ctx.received_size, len, g_fw_ctx.total_size);
+        return FW_RESULT_SIZE_TOO_LARGE;
+    }
+    
+    // 检查RAM缓冲区是否溢出（保留用于打印）
+    // if (g_fw_ctx.buffer_offset + len > FW_RAM_BUFFER_SIZE) {
+    //     FW_LOG_E("RAM buffer overflow: offset=%d, add=%d, max=%d",
+    //              g_fw_ctx.buffer_offset, len, FW_RAM_BUFFER_SIZE);
+    //     return FW_RESULT_SIZE_TOO_LARGE;
+    // }
+    
+    // 数据写入RAM缓冲区（保留用于打印）
+    // memcpy(&g_fw_ram_buffer[g_fw_ctx.buffer_offset], data, len);
+    // g_fw_ctx.buffer_offset += len;
+    g_fw_ctx.received_size += len;
+    
+    // 实时打印BIN数据（调试用）
+#ifdef PRINTF_BIN
+    if (!g_bin_triggered) {
+        for (uint16_t _i = 0; _i + BIN_MAGIC_LEN <= len; _i++) {
+            if (memcmp(&data[_i], g_bin_magic, BIN_MAGIC_LEN) == 0) {
+                g_bin_triggered = true;
+                break;
+            }
+        }
+    }
+    if (g_bin_triggered) {
+        g_bin_triggered = false;
+        BIN_OTA("=== BIN DUMP START: %d bytes ===", g_fw_ctx.buffer_offset);
+        for (uint32_t _off = 0; _off < g_fw_ctx.buffer_offset; _off += BIN_BYTES_PER_LINE) {
+            char _ln[64];
+            int _p = 0;
+            for (uint32_t _j = 0; _j < BIN_BYTES_PER_LINE && (_off + _j) < g_fw_ctx.buffer_offset; _j++) {
+                _p += sprintf(_ln + _p, "%02X ", g_fw_ram_buffer[_off + _j]);
+            }
+            BIN_OTA("%s", _ln);
+        }
+        BIN_OTA("=== BIN DUMP END ===");
+    }
+#endif
+    
+    // 实时计算CRC
+    for (uint16_t i = 0; i < len; i++) {
+        g_fw_ctx.rx_crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (g_fw_ctx.rx_crc & 1) {
+                g_fw_ctx.rx_crc = (g_fw_ctx.rx_crc >> 1) ^ 0xEDB88320;
+            } else {
+                g_fw_ctx.rx_crc >>= 1;
+            }
+        }
+    }
+    
+#if FW_FLASH_WRITE_ENABLED
+    // ============ 立即写入Flash并校验 ============
+    write_addr = g_fw_ctx.target_address + g_fw_ctx.received_size - len;
+    
+    write_result = fw_write_buffer_to_flash(write_addr, data, len);
+    if (write_result != FW_RESULT_OK) {
+        FW_LOG_E("Write failed at addr=0x%08X", write_addr);
+        fw_set_state(FW_UPDATE_ERROR);
+        fw_set_error(write_result);
+        return write_result;
+    }
+    
+    FW_LOG_D("Write success at addr=0x%08X, len=%d", write_addr, len);
+#else
+    FW_LOG_D("Flash write DISABLED, data saved to RAM buffer only");
+#endif
+    
+    // 更新状态
+    if (g_fw_ctx.state == FW_UPDATE_READY) {
+        fw_set_state(FW_UPDATE_TRANSFERRING);
+    }
+
+    // 刷新传输看门狗
+    g_fw_ctx.last_block_tick = tickTimer_GetCount();
+    
+    // 序列号递增
+    if (g_fw_ctx.expected_sequence == 0xFF) {
+        g_fw_ctx.expected_sequence = 0x01;   // 跟随 TBOX 回绕：255 -> 1
+    } else {
+        g_fw_ctx.expected_sequence++;
+    }
+    
+    return FW_RESULT_OK;
+}
+
+FlashDownloadResult_t FlashDownload_OnTransferExit(void)
+{
+    if (!g_fw_initialized) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    FW_LOG_I(">>> OnTransferExit");
+    
+    // 状态检查
+    if (g_fw_ctx.state != FW_UPDATE_TRANSFERRING &&
+        g_fw_ctx.state != FW_UPDATE_READY &&
+        g_fw_ctx.state != FW_UPDATE_COMPLETE) {
+        FW_LOG_W("Wrong state for transfer exit: %d", g_fw_ctx.state);
+        return FW_RESULT_NOT_READY;
+    }
+    
+    if (g_fw_ctx.state == FW_UPDATE_COMPLETE) {
+        return FW_RESULT_OK;
+    }
+    
+    // 检查是否接收完整
+    if (g_fw_ctx.received_size < g_fw_ctx.total_size) {
+        FW_LOG_W("Incomplete transfer: received=%d, total=%d",
+                 g_fw_ctx.received_size, g_fw_ctx.total_size);
+        // 注意：最后一批可能有填充，不一定是错误
+    }
+    
+    // 完成CRC计算
+    g_fw_ctx.rx_crc = ~g_fw_ctx.rx_crc;
+    FW_LOG_I("Calculated CRC: 0x%08X", g_fw_ctx.rx_crc);
+    
+#if FW_FLUSH_BUFFER_ON_EXIT
+    // 如果还有未写入的数据，刷新缓冲区（当前方案已实时写入，无需此操作）
+    if (g_fw_ctx.buffer_offset > 0) {
+        // 预留：如果后续改为缓冲写入，在此处刷新
+    }
+#endif
+    
+    // 升级完成
+    fw_set_state(FW_UPDATE_COMPLETE);
+    g_fw_ctx.pending_response = false;
+    
+    FW_LOG_I("=== Firmware Update Complete ===");
+    FW_LOG_I("Address: 0x%08X, Size: %d bytes (%.2f KB)",
+             g_fw_ctx.target_address, g_fw_ctx.total_size,
+             g_fw_ctx.total_size / 1024.0);
+    FW_LOG_I("Received: %d bytes", g_fw_ctx.received_size);
+    FW_LOG_I("Sectors erased: %d, Blocks written: %d",
+             g_fw_ctx.sector_erased_count, g_fw_ctx.block_written_count);
+    FW_LOG_I("CRC: 0x%08X", g_fw_ctx.rx_crc);
+    
+    // 自动复位
+    if (g_fw_ctx.config.auto_reset_on_complete) {
+        FW_LOG_I("Auto-reset in 1 second...");
+        // NVIC_SystemReset();
+    }
+    
+    return FW_RESULT_OK;
+}
+
+void FlashDownload_Task(void)
+{
+    if (!g_fw_initialized) {
+        return;
+    }
+
+    // 传输看门狗: 0x34 之后(READY/TRANSFERRING)超过 2s 无新 0x36 数据块
+    // (如 CAN 断线), 自动回 IDLE 支持重新刷写。
+    // 若 UDS 会话尚未超时(S3=4s), TBOX 可直接重发 0x34, 无需重新解锁
+    if ((g_fw_ctx.state == FW_UPDATE_READY || g_fw_ctx.state == FW_UPDATE_TRANSFERRING) &&
+        (tickTimer_GetCount() - g_fw_ctx.last_block_tick >= FW_TRANSFER_TIMEOUT_MS))
+    {
+        FW_LOG_W("Transfer watchdog <-- no 0x36 data for %dms, reset to IDLE",
+                 FW_TRANSFER_TIMEOUT_MS);
+        FlashDownload_Reset();
+        return;
+    }
+
+    // 当前方案中，擦除和写入都在34/36服务中实时完成
+    // Task函数主要用于兼容性，可以执行一些后台检查
+    switch (g_fw_ctx.state)
+    {
+        case FW_UPDATE_VERIFYING:
+            // 已由OnTransferExit直接处理，此状态不再使用
+            break;
+            
+        case FW_UPDATE_ERROR:
+            // 错误状态，等待外部复位或取消
+            break;
+            
+        default:
+            break;
+    }
+}
+
+FlashDownloadState_t FlashDownload_GetState(void)
+{
+    return g_fw_ctx.state;
+}
+
+void FlashDownload_GetProgress(FlashDownloadProgress_t* progress)
+{
+    if (progress == NULL) return;
+    
+    progress->total_size = g_fw_ctx.total_size;
+    progress->received_size = g_fw_ctx.received_size;
+    progress->target_address = g_fw_ctx.target_address;
+    
+    if (g_fw_ctx.total_size > 0) {
+        progress->progress_percent = (uint8_t)((g_fw_ctx.received_size * 100) / g_fw_ctx.total_size);
+    } else {
+        progress->progress_percent = 0;
+    }
+}
+
+FlashDownloadResult_t FlashDownload_GetLastError(void)
+{
+    return g_fw_ctx.last_error;
+}
+
+void FlashDownload_Cancel(void)
+{
+    FW_LOG_I("Cancelling firmware update");
+    fw_set_state(FW_UPDATE_IDLE);
+    g_fw_ctx.pending_response = false;
+    g_fw_ctx.buffer_offset = 0;
+    g_fw_ctx.received_size = 0;
+    g_fw_ctx.expected_sequence = 1;
+}
+
+void FlashDownload_Reset(void)
+{
+    FW_LOG_I("Resetting firmware update module");
+    
+    // 只重置运行时状态，保留配置和 Flash 句柄
+    g_fw_ctx.state = FW_UPDATE_IDLE;
+    g_fw_ctx.last_error = FW_RESULT_OK;
+    g_fw_ctx.target_address = 0;
+    g_fw_ctx.total_size = 0;
+    g_fw_ctx.received_size = 0;
+    g_fw_ctx.buffer_offset = 0;
+    g_fw_ctx.expected_sequence = 1;
+    g_fw_ctx.sector_erased_count = 0;
+    g_fw_ctx.block_written_count = 0;
+    g_fw_ctx.pending_response = false;
+    g_fw_ctx.rx_crc = 0;
+    g_fw_ctx.erased = false;
+    
+    // 不清空 config 和 flash_handle
+}
+
+bool FlashDownload_IsPending(void)
+{
+    return g_fw_ctx.pending_response;
+}
+
+FlashDownloadResult_t FlashDownload_Erase(uint32_t address, uint32_t size)
+{
+    uint32_t mapped_addr;
+    
+    if (!g_fw_initialized) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    /* 地址映射：将 TBOX 地址转换为实际 Flash 地址 */
+    mapped_addr = MAP_TBOX_ADDR_TO_FLASH(address);
+    
+    if (!fw_is_address_valid(mapped_addr)) {
+        FW_LOG_E("Erase: invalid address: orig=0x%08X, mapped=0x%08X", address, mapped_addr);
+        return FW_RESULT_ADDR_INVALID;
+    }
+    
+    // 31服务的擦除请求：在34服务时已经擦除，这里可以只做标记
+    FW_LOG_I("Erase requested via 0x31: orig_addr=0x%08X, mapped_addr=0x%08X, size=%d bytes", 
+             address, mapped_addr, size);
+    FW_LOG_I("Actual erase already performed at 0x34 (RequestDownload)");
+    
+    // 返回成功
+    return FW_RESULT_OK;
+}
+
+FlashDownloadResult_t FlashDownload_CalculateCRC(uint32_t address, uint32_t size, uint32_t* crc_result)
+{
+    uint32_t mapped_addr;
+    
+    if (!g_fw_initialized || crc_result == NULL) {
+        return FW_RESULT_NOT_READY;
+    }
+    
+    /* 地址映射：将 TBOX 地址转换为实际 Flash 地址 */
+    mapped_addr = MAP_TBOX_ADDR_TO_FLASH(address);
+    
+    if (!fw_is_address_valid(mapped_addr)) {
+        FW_LOG_E("CRC: invalid address: orig=0x%08X, mapped=0x%08X", address, mapped_addr);
+        return FW_RESULT_ADDR_INVALID;
+    }
+    
+    // 从 Flash 读取数据并计算 CRC
+    uint32_t crc = 0xFFFFFFFF;
+    for (uint32_t offset = 0; offset < size; offset += 4) {
+        uint32_t word = FlashAdv_ReadWord(g_fw_ctx.flash_handle, mapped_addr + offset);
+        crc = fw_calculate_crc32((uint8_t*)&word, 4);
+    }
+    
+    *crc_result = ~crc;
+    return FW_RESULT_OK;
+}
+
+uint16_t FlashDownload_GetFirmwareVersion(void)
+{
+    // 从 Flash 固定地址读取固件版本号
+    uint32_t version_addr = FW_APP_START_ADDR + 0x10;
+    return (uint16_t)FlashAdv_ReadWord(g_fw_ctx.flash_handle, version_addr);
+}
+
+uint16_t FlashDownload_GetBootloaderVersion(void)
+{
+    // 从 Bootloader 区域读取版本号
+    uint32_t version_addr = FW_BOOTLOADER_START_ADDR + 0x10;
+    return (uint16_t)FlashAdv_ReadWord(g_fw_ctx.flash_handle, version_addr);
+}
+
+uint32_t FlashDownload_GetFirmwareCRC(void)
+{
+    // 读取存储的 CRC 值
+    uint32_t crc_addr = FW_APP_START_ADDR + FW_APP_MAX_SIZE - 4;
+    return FlashAdv_ReadWord(g_fw_ctx.flash_handle, crc_addr);
+}
