@@ -526,11 +526,11 @@ void app_can_transmit(void)
 			}
             break;
         case 5:
-			if (tx_mgr.motor1_enabled || tx_mgr.motor2_enabled)
-			{
+			//if (tx_mgr.motor1_enabled || tx_mgr.motor2_enabled)
+			//{
 				build_can_1108(&tx_data);
 				can_transmit_ext(0x18FF1108, (uint8_t*)&tx_data, 8);
-			}
+			//}
 
             break;
         case 6:
