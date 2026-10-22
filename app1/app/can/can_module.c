@@ -103,16 +103,16 @@ static void can_cfg_init(CM_CAN_TypeDef *CANx, const can_cfg_t *cfg)
 //    {0x18DA03F1UL, 0UL, CAN_ID_STD_EXT},  // Filter 7(旧): UDS物理请求ID (升级工装/TBOX -> 本控制器)
 //    {0x18FFFDF0UL, 0x00000200UL, CAN_ID_STD_EXT},  // Filter 8(旧): 0x18FFFDF0和0x18FFFFF0二合一
 
-    {0x18FF9DF0UL, 0x00008A00UL, CAN_ID_STD_EXT},  // Filter 1: 9DF0+17F0 二合一 (掩码忽略bit15/11/9)
-    {0x18FFC060UL, 0UL, CAN_ID_STD_EXT},  // Filter 2: 精确匹配 C060
-    {0x18FF8018UL, 0x00006C00UL, CAN_ID_STD_EXT},  // Filter 3: 8018+8818+EC18 三合一 (掩码忽略bit14/13/11/10)
-    {0x18FF31F9UL, 0UL, CAN_ID_STD_EXT},  // Filter 4: 精确匹配 31F9
-    {0x18FFFDF0UL, 0x00000200UL, CAN_ID_STD_EXT},  // Filter 5: FDF0+FFFFF0 二合一 (掩码忽略bit9)
-    {0x18FF3AFDUL, 0UL, CAN_ID_STD_EXT},  // Filter 6: UDS物理请求ID (升级工装/TBOX -> 本控制器)
-    {0x1FFFFFFFUL, 0UL, CAN_ID_STD_EXT},  // Filter 7: 占位(功能寻址广播ID已废弃)
-    {0x18FF5858UL, 0x00000D0DUL, CAN_ID_STD_EXT},  // Filter 8: 强制OTA 5858 + SWDT测试 5555 二合一 (掩码忽略bit11/10/8/3/2/0)
-
+    {0x18FF9DF0UL, 0x00008A00UL, CAN_ID_STD_EXT},  // Filter 1: 在用 9DF0/17F0
+    {0x18FFC060UL, 0x00000000UL, CAN_ID_STD_EXT},  // Filter 2: 在用 C060
+    {0x18FF8018UL, 0x00000C00UL, CAN_ID_STD_EXT},  // Filter 3: 在用 8018/8818; 预留 8418
+    {0x18FFEC18UL, 0x00000000UL, CAN_ID_STD_EXT},  // Filter 4: 在用 EC18
+    {0x18FF31F9UL, 0x00000000UL, CAN_ID_STD_EXT},  // Filter 5: 在用 31F9
+    {0x18FFFDF0UL, 0x00000200UL, CAN_ID_STD_EXT},  // Filter 6: 在用 FDF0/FFFF0
+    {0x18FF3AFDUL, 0x00000000UL, CAN_ID_STD_EXT},  // Filter 7: 在用 3AFD (UDS 物理请求)
+    {0x18FF5858UL, 0x00000000UL, CAN_ID_STD_EXT},  // Filter 8: 在用 5858 (强制 OTA)
 };
+    /* 多余放行: 0x18FF15F0 0x18FF1DF0 0x18FF1FF0 0x18FF95F0 0x18FF97F0 0x18FF9FF0 0x18FF8C18 */
 
     // 波特率
     can_cfg_bdr_init(cfg->can_bdr, &cfg->bit_time, &stcCanInit.stcBitCfg);
